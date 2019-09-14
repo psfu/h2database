@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.mvstore;
@@ -41,7 +41,7 @@ public class StreamStore {
     private int maxBlockSize = 256 * 1024;
     private final AtomicLong nextKey = new AtomicLong();
     private final AtomicReference<byte[]> nextBuffer =
-            new AtomicReference<byte[]>();
+            new AtomicReference<>();
 
     /**
      * Create a stream store instance.
@@ -95,15 +95,14 @@ public class StreamStore {
      *
      * @param in the stream
      * @return the id (potentially an empty array)
+     * @throws IOException If an I/O error occurs
      */
+    @SuppressWarnings("resource")
     public byte[] put(InputStream in) throws IOException {
         ByteArrayOutputStream id = new ByteArrayOutputStream();
         int level = 0;
         try {
-            while (true) {
-                if (put(id, in, level)) {
-                    break;
-                }
+            while (!put(id, in, level)) {
                 if (id.size() > maxBlockSize / 2) {
                     id = putIndirectId(id);
                     level++;
@@ -206,6 +205,7 @@ public class StreamStore {
      *
      * @param len the length of the stored block.
      */
+    @SuppressWarnings("unused")
     protected void onStore(int len) {
         // do nothing by default
     }
@@ -264,9 +264,13 @@ public class StreamStore {
                 // indirect: 2, total len (long), blockId (long)
                 DataUtils.readVarLong(idBuffer);
                 long k2 = DataUtils.readVarLong(idBuffer);
-                // recurse
+                maxKey = k2;
                 byte[] r = map.get(k2);
-                maxKey = Math.max(maxKey, getMaxBlockKey(r));
+                // recurse
+                long m = getMaxBlockKey(r);
+                if (m >= 0) {
+                    maxKey = Math.max(maxKey, m);
+                }
                 break;
             default:
                 throw DataUtils.newIllegalArgumentException(

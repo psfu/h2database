@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  *
  * According to a mail from Alan Tucker to Chris H Miller from IBM,
@@ -64,7 +64,7 @@ public class Permutations<T> {
      * @return the generated permutations object
      */
     public static <T> Permutations<T> create(T[] in, T[] out) {
-        return new Permutations<T>(in, out, in.length);
+        return new Permutations<>(in, out, in.length);
     }
 
     /**
@@ -77,7 +77,7 @@ public class Permutations<T> {
      * @return the generated permutations object
      */
     public static <T> Permutations<T> create(T[] in, T[] out, int m) {
-        return new Permutations<T>(in, out, m);
+        return new Permutations<>(in, out, m);
     }
 
     /**

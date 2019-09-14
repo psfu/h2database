@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.samples;
@@ -10,6 +10,8 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.concurrent.TimeUnit;
+
 import org.h2.tools.DeleteDbFiles;
 
 /**
@@ -28,7 +30,7 @@ public class DirectInsert {
         Class.forName("org.h2.Driver");
         DeleteDbFiles.execute("~", "test", true);
         String url = "jdbc:h2:~/test";
-        initialInsert(url, 200000);
+        initialInsert(url, 200_000);
         for (int i = 0; i < 3; i++) {
             createAsSelect(url, true);
             createAsSelect(url, false);
@@ -42,10 +44,10 @@ public class DirectInsert {
         stat.execute("CREATE TABLE TEST(ID INT PRIMARY KEY, NAME VARCHAR)");
         PreparedStatement prep = conn.prepareStatement(
                 "INSERT INTO TEST VALUES(?, 'Test' || SPACE(100))");
-        long time = System.currentTimeMillis();
+        long time = System.nanoTime();
         for (int i = 0; i < len; i++) {
-            long now = System.currentTimeMillis();
-            if (now > time + 1000) {
+            long now = System.nanoTime();
+            if (now > time + TimeUnit.SECONDS.toNanos(1)) {
                 time = now;
                 System.out.println("Inserting " + (100L * i / len) + "%");
             }
@@ -66,10 +68,10 @@ public class DirectInsert {
         stat.execute("DROP TABLE IF EXISTS TEST2");
         System.out.println("CREATE TABLE ... AS SELECT " +
                 (optimize ? "(optimized)" : ""));
-        long time = System.currentTimeMillis();
+        long time = System.nanoTime();
         stat.execute("CREATE TABLE TEST2 AS SELECT * FROM TEST");
-        System.out.printf("%.3f sec.\n",
-                (System.currentTimeMillis() - time) / 1000.0);
+        System.out.printf("%.3f sec.\n", (double) (System.nanoTime() - time) /
+                TimeUnit.SECONDS.toNanos(1));
         stat.execute("INSERT INTO TEST2 SELECT * FROM TEST2");
         stat.close();
         conn.close();

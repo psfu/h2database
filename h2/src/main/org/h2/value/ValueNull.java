@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.value;
@@ -13,7 +13,9 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.sql.Types;
 
+import org.h2.engine.Mode;
 import org.h2.message.DbException;
 
 /**
@@ -27,33 +29,38 @@ public class ValueNull extends Value {
     public static final ValueNull INSTANCE = new ValueNull();
 
     /**
-     * This special instance is used as a marker for deleted entries in a map.
-     * It should not be used anywhere else.
-     */
-    public static final ValueNull DELETED = new ValueNull();
-
-    /**
      * The precision of NULL.
      */
-    private static final int PRECISION = 1;
+    static final int PRECISION = 1;
 
     /**
      * The display size of the textual representation of NULL.
      */
-    private static final int DISPLAY_SIZE = 4;
+    static final int DISPLAY_SIZE = 4;
 
     private ValueNull() {
         // don't allow construction
     }
 
     @Override
-    public String getSQL() {
-        return "NULL";
+    public StringBuilder getSQL(StringBuilder builder) {
+        return builder.append("NULL");
     }
 
     @Override
-    public int getType() {
-        return Value.NULL;
+    public TypeInfo getType() {
+        return TypeInfo.TYPE_NULL;
+    }
+
+    @Override
+    public int getValueType() {
+        return NULL;
+    }
+
+    @Override
+    public int getMemory() {
+        // Singleton value
+        return 0;
     }
 
     @Override
@@ -62,8 +69,8 @@ public class ValueNull extends Value {
     }
 
     @Override
-    public Boolean getBoolean() {
-        return null;
+    public boolean getBoolean() {
+        return false;
     }
 
     @Override
@@ -132,18 +139,18 @@ public class ValueNull extends Value {
     }
 
     @Override
-    public Value convertTo(int type) {
+    protected Value convertTo(int type, Mode mode, Object column, ExtTypeInfo extTypeInfo) {
         return this;
     }
 
     @Override
-    protected int compareSecure(Value v, CompareMode mode) {
+    public int compareTypeSafe(Value v, CompareMode mode) {
         throw DbException.throwInternalError("compare null");
     }
 
     @Override
-    public long getPrecision() {
-        return PRECISION;
+    public boolean containsNull() {
+        return true;
     }
 
     @Override
@@ -159,12 +166,7 @@ public class ValueNull extends Value {
     @Override
     public void set(PreparedStatement prep, int parameterIndex)
             throws SQLException {
-        prep.setNull(parameterIndex, DataType.convertTypeToSQLType(Value.NULL));
-    }
-
-    @Override
-    public int getDisplaySize() {
-        return DISPLAY_SIZE;
+        prep.setNull(parameterIndex, Types.NULL);
     }
 
     @Override

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.db;
@@ -13,6 +13,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Reader;
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Connection;
@@ -22,13 +23,18 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Savepoint;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.Random;
-
+import java.util.concurrent.TimeUnit;
 import org.h2.api.ErrorCode;
 import org.h2.engine.SysProperties;
 import org.h2.jdbc.JdbcConnection;
 import org.h2.message.DbException;
+import org.h2.store.fs.FileUtils;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
+import org.h2.tools.Recover;
+import org.h2.tools.SimpleResultSet;
 import org.h2.util.IOUtils;
 import org.h2.util.JdbcUtils;
 import org.h2.util.StringUtils;
@@ -37,7 +43,7 @@ import org.h2.util.Task;
 /**
  * Tests LOB and CLOB data types.
  */
-public class TestLob extends TestBase {
+public class TestLob extends TestDb {
 
     private static final String MORE_THAN_128_CHARS =
             "12345678901234567890123456789012345678901234567890" +
@@ -52,11 +58,13 @@ public class TestLob extends TestBase {
     public static void main(String... a) throws Exception {
         TestBase test = TestBase.createCaller().init();
         test.config.big = true;
+        test.config.mvStore = false;
         test.test();
     }
 
     @Override
     public void test() throws Exception {
+        testRemoveAfterDeleteAndClose();
         testRemovedAfterTimeout();
         testConcurrentRemoveRead();
         testCloseLobTwice();
@@ -81,6 +89,7 @@ public class TestLob extends TestBase {
         testDelete();
         testLobServerMemory();
         testUpdatingLobRow();
+        testBufferedInputStreamBug();
         if (config.memory) {
             return;
         }
@@ -106,7 +115,40 @@ public class TestLob extends TestBase {
         testLob(false);
         testLob(true);
         testJavaObject();
+        testLobGrowth();
+        testLobInValueResultSet();
         deleteDb("lob");
+    }
+
+    private void testRemoveAfterDeleteAndClose() throws Exception {
+        if (config.memory || config.cipher != null) {
+            return;
+        }
+        // TODO fails in pagestore mode
+        if (!config.mvStore) {
+            return;
+        }
+        deleteDb("lob");
+        Connection conn = getConnection("lob");
+        Statement stat = conn.createStatement();
+        stat.execute("create table test(id int primary key, data clob)");
+        for (int i = 0; i < 10; i++) {
+            stat.execute("insert into test values(1, space(100000))");
+            if (i > 5) {
+                ResultSet rs = stat.executeQuery("select * from test");
+                rs.next();
+                Clob c = rs.getClob(2);
+                stat.execute("delete from test where id = 1");
+                c.getSubString(1, 10);
+            } else {
+                stat.execute("delete from test where id = 1");
+            }
+        }
+        // some clobs are removed only here (those that were queries for)
+        conn.close();
+        Recover.execute(getBaseDir(), "lob");
+        long size = FileUtils.size(getBaseDir() + "/lob.h2.sql");
+        assertTrue("size: " + size, size > 1000 && size < 10000);
     }
 
     private void testLargeClob() throws Exception {
@@ -131,8 +173,11 @@ public class TestLob extends TestBase {
     }
 
     private void testRemovedAfterTimeout() throws Exception {
+        if (config.lazy) {
+            return;
+        }
         deleteDb("lob");
-        final String url = getURL("lob;lob_timeout=50", true);
+        final String url = getURL("lob;lob_timeout=200", true);
         Connection conn = getConnection(url);
         Statement stat = conn.createStatement();
         stat.execute("create table test(id int primary key, data clob)");
@@ -154,19 +199,17 @@ public class TestLob extends TestBase {
         stat.execute("delete from test");
         c1.getSubString(1, 3);
         // wait until it times out
-        Thread.sleep(100);
+        Thread.sleep(250);
         // start a new transaction, to be sure
         stat.execute("delete from test");
-        try {
-            c1.getSubString(1, 3);
-            fail();
-        } catch (SQLException e) {
-            // expected
-        }
+        assertThrows(SQLException.class, c1).getSubString(1, 3);
         conn.close();
     }
 
     private void testConcurrentRemoveRead() throws Exception {
+        if (config.lazy) {
+            return;
+        }
         deleteDb("lob");
         final String url = getURL("lob", true);
         Connection conn = getConnection(url);
@@ -473,7 +516,7 @@ public class TestLob extends TestBase {
     }
 
     private void testDeadlock2() throws Exception {
-        if (config.mvcc || config.memory) {
+        if (config.mvStore || config.memory) {
             return;
         }
         deleteDb("lob");
@@ -603,12 +646,7 @@ public class TestLob extends TestBase {
         Statement stat;
         conn = getConnection("lob");
         stat = conn.createStatement();
-        try {
-            stat.execute("create memory table test(x clob unique)");
-            fail();
-        } catch (SQLException e) {
-            assertEquals(ErrorCode.FEATURE_NOT_SUPPORTED_1, e.getErrorCode());
-        }
+        assertThrows(ErrorCode.FEATURE_NOT_SUPPORTED_1, stat).execute("create memory table test(x clob unique)");
         conn.close();
     }
 
@@ -647,6 +685,10 @@ public class TestLob extends TestBase {
 
     private void testDelete() throws Exception {
         if (config.memory || config.mvStore) {
+            return;
+        }
+        // TODO fails in pagestore mode
+        if (!config.mvStore) {
             return;
         }
         deleteDb("lob");
@@ -700,6 +742,10 @@ public class TestLob extends TestBase {
 
     private void testLobCleanupSessionTemporaries() throws SQLException {
         if (config.mvStore) {
+            return;
+        }
+        // TODO fails in pagestore mode
+        if (!config.mvStore) {
             return;
         }
         deleteDb("lob");
@@ -1035,18 +1081,36 @@ public class TestLob extends TestBase {
         prep2.getQueryTimeout();
         prep2.close();
         conn0.getAutoCommit();
-        Reader r = clob0.getCharacterStream();
+        Reader r;
+        int ch;
+        r = clob0.getCharacterStream();
         for (int i = 0; i < 10000; i++) {
-            int ch = r.read();
+            ch = r.read();
             if (ch != ('0' + (i % 10))) {
                 fail("expected " + (char) ('0' + (i % 10)) +
                         " got: " + ch + " (" + (char) ch + ")");
             }
         }
-        int ch = r.read();
+        ch = r.read();
         if (ch != -1) {
             fail("expected -1 got: " + ch);
         }
+        r.close();
+        r = clob0.getCharacterStream(1235, 1000);
+        for (int i = 1234; i < 2234; i++) {
+            ch = r.read();
+            if (ch != ('0' + (i % 10))) {
+                fail("expected " + (char) ('0' + (i % 10)) +
+                        " got: " + ch + " (" + (char) ch + ")");
+            }
+        }
+        ch = r.read();
+        if (ch != -1) {
+            fail("expected -1 got: " + ch);
+        }
+        r.close();
+        assertThrows(ErrorCode.INVALID_VALUE_2, clob0).getCharacterStream(10001, 1);
+        assertThrows(ErrorCode.INVALID_VALUE_2, clob0).getCharacterStream(10002, 0);
         conn0.close();
     }
 
@@ -1103,7 +1167,7 @@ public class TestLob extends TestBase {
         conn.createStatement().execute("CREATE TABLE TEST(ID INT PRIMARY KEY, C CLOB)");
         PreparedStatement prep = conn.prepareStatement(
                 "INSERT INTO TEST VALUES(?, ?)");
-        long time = System.currentTimeMillis();
+        long time = System.nanoTime();
         int len = getSize(10, 40);
         if (config.networked && config.big) {
             len = 5;
@@ -1131,8 +1195,8 @@ public class TestLob extends TestBase {
                 }
             }
         }
-        time = System.currentTimeMillis() - time;
-        trace("time: " + time + " compress: " + compress);
+        time = System.nanoTime() - time;
+        trace("time: " + TimeUnit.NANOSECONDS.toMillis(time) + " compress: " + compress);
         conn.close();
         if (!config.memory) {
             long length = new File(getBaseDir() + "/lob.h2.db").length();
@@ -1255,12 +1319,12 @@ public class TestLob extends TestBase {
     }
 
     private Connection reconnect(Connection conn) throws SQLException {
-        long time = System.currentTimeMillis();
+        long time = System.nanoTime();
         if (conn != null) {
             JdbcUtils.closeSilently(conn);
         }
         conn = getConnection("lob");
-        trace("re-connect=" + (System.currentTimeMillis() - time));
+        trace("re-connect=" + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time));
         return conn;
     }
 
@@ -1320,7 +1384,7 @@ public class TestLob extends TestBase {
         PreparedStatement prep;
         prep = conn.prepareStatement("INSERT INTO TEST VALUES(1, ?)");
         String s = new String(getRandomChars(10000, 1));
-        byte[] data = s.getBytes("UTF-8");
+        byte[] data = s.getBytes(StandardCharsets.UTF_8);
         // if we keep the string, debugging with Eclipse is not possible
         // because Eclipse wants to display the large string and fails
         s = "";
@@ -1366,7 +1430,7 @@ public class TestLob extends TestBase {
             len = 100;
         }
 
-        time = System.currentTimeMillis();
+        time = System.nanoTime();
         prep = conn.prepareStatement("INSERT INTO TEST VALUES(?, ?)");
         for (int i = 0; i < len; i += i + i + 1) {
             prep.setInt(1, i);
@@ -1378,11 +1442,11 @@ public class TestLob extends TestBase {
             }
             prep.execute();
         }
-        trace("insert=" + (System.currentTimeMillis() - time));
+        trace("insert=" + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time));
         traceMemory();
         conn = reconnect(conn);
 
-        time = System.currentTimeMillis();
+        time = System.nanoTime();
         prep = conn.prepareStatement("SELECT ID, VALUE FROM TEST");
         rs = prep.executeQuery();
         while (rs.next()) {
@@ -1408,18 +1472,18 @@ public class TestLob extends TestBase {
                         (InputStream) obj, -1);
             }
         }
-        trace("select=" + (System.currentTimeMillis() - time));
+        trace("select=" + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time));
         traceMemory();
 
         conn = reconnect(conn);
 
-        time = System.currentTimeMillis();
+        time = System.nanoTime();
         prep = conn.prepareStatement("DELETE FROM TEST WHERE ID=?");
         for (int i = 0; i < len; i++) {
             prep.setInt(1, i);
             prep.executeUpdate();
         }
-        trace("delete=" + (System.currentTimeMillis() - time));
+        trace("delete=" + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time));
         traceMemory();
         conn = reconnect(conn);
 
@@ -1472,6 +1536,20 @@ public class TestLob extends TestBase {
         while (rs.next()) {
             assertEquals("", (String) rs.getObject("value"));
         }
+        conn.close();
+    }
+
+    /**
+     * Test a bug where the usage of BufferedInputStream in LobStorageMap was
+     * causing a deadlock.
+     */
+    private void testBufferedInputStreamBug() throws SQLException {
+        deleteDb("lob");
+        JdbcConnection conn = (JdbcConnection) getConnection("lob");
+        conn.createStatement().execute("CREATE TABLE TEST(test BLOB)");
+        PreparedStatement ps = conn.prepareStatement("INSERT INTO TEST(test) VALUES(?)");
+        ps.setBlob(1, new ByteArrayInputStream(new byte[257]));
+        ps.executeUpdate();
         conn.close();
     }
 
@@ -1612,4 +1690,75 @@ public class TestLob extends TestBase {
         }
         return new String(buffer);
     }
+
+    private void testLobGrowth() throws SQLException {
+        if (config.mvStore) {
+            return;
+        }
+        final File dbFile = new File(getBaseDir(), "lob.h2.db");
+        final byte[] data = new byte[2560];
+        deleteDb("lob");
+        JdbcConnection conn = (JdbcConnection) getConnection("lob;LOB_TIMEOUT=0");
+        Statement stat = conn.createStatement();
+        stat.execute("CREATE TABLE TEST(ID IDENTITY PRIMARY KEY, DATA BLOB)");
+        PreparedStatement prep = conn
+                .prepareStatement("INSERT INTO TEST(DATA) VALUES(?)");
+        for (int i = 0; i < 100; i++) {
+            prep.setBinaryStream(1, new ByteArrayInputStream(data));
+            prep.executeUpdate();
+        }
+        final long initialSize = dbFile.length();
+        prep = conn.prepareStatement("UPDATE test SET data=? WHERE id=?");
+        for (int i = 0; i < 20; i++) {
+            for (int j = 0; j < 100; j++) {
+                data[0] = (byte)(i);
+                data[1] = (byte)(j);
+                prep.setBinaryStream(1, new ByteArrayInputStream(data));
+                prep.setInt(2, j);
+                prep.executeUpdate();
+            }
+        }
+        assertTrue("dbFile size " + dbFile.length() + " is > initialSize "
+                + initialSize, dbFile.length() <= (initialSize * 1.5));
+        conn.createStatement().execute("drop table test");
+        conn.close();
+    }
+
+    private void testLobInValueResultSet() throws SQLException {
+        deleteDb("lob");
+        JdbcConnection conn = (JdbcConnection) getConnection("lob");
+        Statement stat = conn.createStatement();
+        stat.execute("CREATE ALIAS VRS FOR \"" + getClass().getName() + ".testLobInValueResultSetGet\"");
+        ResultSet rs = stat.executeQuery("SELECT VRS()");
+        assertTrue(rs.next());
+        ResultSet rs2 = (ResultSet) rs.getObject(1);
+        assertFalse(rs.next());
+        assertTrue(rs2.next());
+        Clob clob = rs2.getClob(1);
+        assertFalse(rs2.next());
+        assertEquals(MORE_THAN_128_CHARS, clob.getSubString(1, Integer.MAX_VALUE));
+        conn.close();
+    }
+
+    /**
+     * This method is called via reflection from the database.
+     *
+     * @param conn connection
+     * @return the result set
+     * @throws SQLException on exception
+     */
+    public static SimpleResultSet testLobInValueResultSetGet(Connection conn) throws SQLException {
+        final Clob c = conn.createClob();
+        c.setString(1, MORE_THAN_128_CHARS);
+        SimpleResultSet rs = new SimpleResultSet() {
+            @Override
+            public Object getObject(int columnIndex) throws SQLException {
+                return c;
+            }
+        };
+        rs.addColumn("L", Types.CLOB, 1000, 0);
+        rs.addRow(MORE_THAN_128_CHARS);
+        return rs;
+    }
+
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.unit;
@@ -13,18 +13,20 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.h2.api.ErrorCode;
 import org.h2.jdbc.JdbcConnection;
 import org.h2.store.fs.FileUtils;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 import org.h2.util.SortedProperties;
 import org.h2.util.Task;
 
 /**
  * Test the serialized (server-less) mode.
  */
-public class TestFileLockSerialized extends TestBase {
+public class TestFileLockSerialized extends TestDb {
 
     /**
      * Run just this test.
@@ -36,10 +38,15 @@ public class TestFileLockSerialized extends TestBase {
     }
 
     @Override
-    public void test() throws Exception {
+    public boolean isEnabled() {
         if (config.mvStore) {
-            return;
+            return false;
         }
+        return true;
+    }
+
+    @Override
+    public void test() throws Exception {
         println("testSequence");
         testSequence();
         println("testAutoIncrement");
@@ -237,11 +244,8 @@ public class TestFileLockSerialized extends TestBase {
         SortedProperties p = SortedProperties.loadProperties(propFile);
         p.setProperty("changePending", "true");
         p.setProperty("modificationDataId", "1000");
-        OutputStream out = FileUtils.newOutputStream(propFile, false);
-        try {
+        try (OutputStream out = FileUtils.newOutputStream(propFile, false)) {
             p.store(out, "test");
-        } finally {
-            out.close();
         }
         Thread.sleep(100);
         stat.execute("select * from test");
@@ -363,7 +367,7 @@ public class TestFileLockSerialized extends TestBase {
                 "create table test(id int auto_increment, id2 int)");
         conn.close();
 
-        final long endTime = System.currentTimeMillis() + runTime;
+        final long endTime = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(runTime);
         final Exception[] ex = { null };
         final Connection[] connList = new Connection[howManyThreads];
         final boolean[] stop = { false };
@@ -416,7 +420,7 @@ public class TestFileLockSerialized extends TestBase {
             t.start();
             threads[i] = t;
         }
-        while ((ex[0] == null) && (System.currentTimeMillis() < endTime)) {
+        while ((ex[0] == null) && (System.nanoTime() < endTime)) {
             Thread.sleep(10);
         }
 
@@ -447,7 +451,7 @@ public class TestFileLockSerialized extends TestBase {
         conn.createStatement().execute("insert into test values(1)");
         conn.close();
 
-        final long endTime = System.currentTimeMillis() + runTime;
+        final long endTime = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(runTime);
         final Exception[] ex = { null };
         final Connection[] connList = new Connection[howManyThreads];
         final boolean[] stop = { false };
@@ -488,7 +492,7 @@ public class TestFileLockSerialized extends TestBase {
             t.start();
             threads[i] = t;
         }
-        while ((ex[0] == null) && (System.currentTimeMillis() < endTime)) {
+        while ((ex[0] == null) && (System.nanoTime() < endTime)) {
             Thread.sleep(10);
         }
 

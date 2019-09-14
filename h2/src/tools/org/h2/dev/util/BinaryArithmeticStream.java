@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.dev.util;
@@ -174,7 +174,7 @@ public class BinaryArithmeticStream {
         private final Node tree;
 
         public Huffman(int[] frequencies) {
-            PriorityQueue<Node> queue = new PriorityQueue<Node>();
+            PriorityQueue<Node> queue = new PriorityQueue<>();
             for (int i = 0; i < frequencies.length; i++) {
                 int f = frequencies[i];
                 if (f > 0) {
@@ -203,8 +203,8 @@ public class BinaryArithmeticStream {
             Node n = tree;
             for (int i = bitCount; i >= 0; i--) {
                 boolean goRight = ((code >> i) & 1) == 1;
-                int prob = MAX_PROBABILITY *
-                        n.right.frequency / n.frequency;
+                int prob = (int) ((long) MAX_PROBABILITY *
+                        n.right.frequency / n.frequency);
                 out.writeBit(goRight, prob);
                 n = goRight ? n.right : n.left;
             }
@@ -219,8 +219,8 @@ public class BinaryArithmeticStream {
         public int read(In in) throws IOException {
             Node n = tree;
             while (n.left != null) {
-                int prob = MAX_PROBABILITY *
-                        n.right.frequency / n.frequency;
+                int prob = (int) ((long) MAX_PROBABILITY *
+                        n.right.frequency / n.frequency);
                 boolean goRight = in.readBit(prob);
                 n = goRight ? n.right : n.left;
             }

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.build.doc;
@@ -13,6 +13,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -54,7 +55,7 @@ public class UploadBuild {
         if (coverage) {
             byte[] data = IOUtils.readBytesAndClose(
                     new FileInputStream("coverage/index.html"), -1);
-            String index = new String(data, "ISO-8859-1");
+            String index = new String(data, StandardCharsets.ISO_8859_1);
             coverageFailed = index.contains("CLASS=\"h\"");
             while (true) {
                 int idx = index.indexOf("<A HREF=\"");
@@ -69,7 +70,7 @@ public class UploadBuild {
             index = StringUtils.replaceAll(index, "[all", "");
             index = StringUtils.replaceAll(index, "classes]", "");
             FileOutputStream out = new FileOutputStream("coverage/overview.html");
-            out.write(index.getBytes("ISO-8859-1"));
+            out.write(index.getBytes(StandardCharsets.ISO_8859_1));
             out.close();
             new File("details").mkdir();
             zip("details/coverage_files.zip", "coverage", true);
@@ -124,11 +125,11 @@ public class UploadBuild {
             (error ? " FAILED" : "") +
             (coverageFailed ? " COVERAGE" : "") +
             "', '" + ts +
-            "', '<a href=\"http://www.h2database.com/" +
+            "', '<a href=\"https://h2database.com/" +
             "html/testOutput.html\">Output</a>" +
-            " - <a href=\"http://www.h2database.com/" +
+            " - <a href=\"https://h2database.com/" +
             "coverage/overview.html\">Coverage</a>" +
-            " - <a href=\"http://www.h2database.com/" +
+            " - <a href=\"https://h2database.com/" +
             "automated/h2-latest.jar\">Jar</a>');\n";
         buildSql += sql;
         Connection conn;
@@ -163,7 +164,7 @@ public class UploadBuild {
                 new ByteArrayInputStream(content.getBytes()));
         ftp.store("/httpdocs/html/testOutput.html",
                 new ByteArrayInputStream(testOutput.getBytes()));
-        String jarFileName = "bin/h2-" + Constants.getVersion() + ".jar";
+        String jarFileName = "bin/h2-" + Constants.VERSION + ".jar";
         if (FileUtils.exists(jarFileName)) {
             ftp.store("/httpdocs/automated/h2-latest.jar",
                     new FileInputStream(jarFileName));
@@ -174,6 +175,48 @@ public class UploadBuild {
             ftp.store("/httpdocs/coverage/coverage.zip",
                     new FileInputStream("coverage.zip"));
             FileUtils.delete("coverage.zip");
+        }
+        String mavenRepoDir = System.getProperty("user.home") + "/.m2/repository/";
+        boolean mavenSnapshot = new File(mavenRepoDir +
+                "com/h2database/h2/1.0-SNAPSHOT/h2-1.0-SNAPSHOT.jar").exists();
+        if (mavenSnapshot) {
+            if (!ftp.exists("/httpdocs", "m2-repo")) {
+                ftp.makeDirectory("/httpdocs/m2-repo");
+            }
+            if (!ftp.exists("/httpdocs/m2-repo", "com")) {
+                ftp.makeDirectory("/httpdocs/m2-repo/com");
+            }
+            if (!ftp.exists("/httpdocs/m2-repo/com", "h2database")) {
+                ftp.makeDirectory("/httpdocs/m2-repo/com/h2database");
+            }
+            if (!ftp.exists("/httpdocs/m2-repo/com/h2database", "h2")) {
+                ftp.makeDirectory("/httpdocs/m2-repo/com/h2database/h2");
+            }
+            if (!ftp.exists("/httpdocs/m2-repo/com/h2database/h2", "1.0-SNAPSHOT")) {
+                ftp.makeDirectory("/httpdocs/m2-repo/com/h2database/h2/1.0-SNAPSHOT");
+            }
+            if (!ftp.exists("/httpdocs/m2-repo/com/h2database", "h2-mvstore")) {
+                ftp.makeDirectory("/httpdocs/m2-repo/com/h2database/h2-mvstore");
+            }
+            if (!ftp.exists("/httpdocs/m2-repo/com/h2database/h2-mvstore", "1.0-SNAPSHOT")) {
+                ftp.makeDirectory("/httpdocs/m2-repo/com/h2database/h2-mvstore/1.0-SNAPSHOT");
+            }
+            ftp.store("/httpdocs/m2-repo/com/h2database/h2" +
+                    "/1.0-SNAPSHOT/h2-1.0-SNAPSHOT.pom",
+                    new FileInputStream(mavenRepoDir +
+                            "com/h2database/h2/1.0-SNAPSHOT/h2-1.0-SNAPSHOT.pom"));
+            ftp.store("/httpdocs/m2-repo/com/h2database/h2" +
+                            "/1.0-SNAPSHOT/h2-1.0-SNAPSHOT.jar",
+                    new FileInputStream(mavenRepoDir +
+                            "com/h2database/h2/1.0-SNAPSHOT/h2-1.0-SNAPSHOT.jar"));
+            ftp.store("/httpdocs/m2-repo/com/h2database/h2-mvstore" +
+                            "/1.0-SNAPSHOT/h2-mvstore-1.0-SNAPSHOT.pom",
+                    new FileInputStream(mavenRepoDir +
+                            "com/h2database/h2-mvstore/1.0-SNAPSHOT/h2-mvstore-1.0-SNAPSHOT.pom"));
+            ftp.store("/httpdocs/m2-repo/com/h2database/h2-mvstore" +
+                            "/1.0-SNAPSHOT/h2-mvstore-1.0-SNAPSHOT.jar",
+                    new FileInputStream(mavenRepoDir +
+                            "com/h2database/h2-mvstore/1.0-SNAPSHOT/h2-mvstore-1.0-SNAPSHOT.jar"));
         }
         ftp.close();
     }

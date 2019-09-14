@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.build.indexer;
@@ -14,9 +14,9 @@ import java.util.HashMap;
 public class HtmlConverter {
 
     private static final HashMap<String, Character> CHAR_MAP =
-            new HashMap<String, Character>();
+            new HashMap<>();
     private static final HashMap<Character, String> CODE_MAP =
-            new HashMap<Character, String>();
+            new HashMap<>();
 
     private static final String[] CHARS = { "quot:34", "amp:38", "lt:60",
             "gt:62", "nbsp:160", "iexcl:161", "cent:162", "pound:163",

@@ -1,13 +1,13 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.dev.hash;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Set;
@@ -330,8 +330,7 @@ public class MinimalPerfectHash<K> {
      * @return the hash function description
      */
     public static <K> byte[] generate(Set<K> set, UniversalHash<K> hash) {
-        ArrayList<K> list = new ArrayList<K>();
-        list.addAll(set);
+        ArrayList<K> list = new ArrayList<>(set);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         int seed = RANDOM.nextInt();
         out.write(seed >>> 24);
@@ -409,7 +408,7 @@ public class MinimalPerfectHash<K> {
         boolean isRoot = level == 0;
         ArrayList<ArrayList<K>> lists;
         do {
-            lists = new ArrayList<ArrayList<K>>(split);
+            lists = new ArrayList<>(split);
             for (int i = 0; i < split; i++) {
                 lists.add(new ArrayList<K>(size / split));
             }
@@ -452,11 +451,11 @@ public class MinimalPerfectHash<K> {
             final int seed,
             ByteArrayOutputStream out) {
         final ArrayList<ByteArrayOutputStream> outList =
-                new ArrayList<ByteArrayOutputStream>();
+                new ArrayList<>();
         int processors = Runtime.getRuntime().availableProcessors();
         Thread[] threads = new Thread[processors];
         final AtomicInteger success = new AtomicInteger();
-        final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+        final AtomicReference<Exception> failure = new AtomicReference<>();
         for (int i = 0; i < processors; i++) {
             threads[i] = new Thread() {
                 @Override
@@ -500,9 +499,7 @@ public class MinimalPerfectHash<K> {
             for (ByteArrayOutputStream temp : outList) {
                 out.write(temp.toByteArray());
             }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        } catch (IOException e) {
+        } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -528,7 +525,7 @@ public class MinimalPerfectHash<K> {
         return (x & (-1 >>> 1)) % size;
     }
 
-    private static <K> int hash(int x, int level, int offset, int size) {
+    private static int hash(int x, int level, int offset, int size) {
         x += level + offset * 32;
         x = ((x >>> 16) ^ x) * 0x45d9f3b;
         x = ((x >>> 16) ^ x) * 0x45d9f3b;
@@ -659,7 +656,7 @@ public class MinimalPerfectHash<K> {
             if (index == 0) {
                 return o.hashCode();
             } else if (index < 8) {
-                long x = o.longValue();
+                long x = o;
                 x += index;
                 x = ((x >>> 32) ^ x) * 0x45d9f3b;
                 x = ((x >>> 32) ^ x) * 0x45d9f3b;
@@ -667,7 +664,7 @@ public class MinimalPerfectHash<K> {
             }
             // get the lower or higher 32 bit depending on the index
             int shift = (index & 1) * 32;
-            return (int) (o.longValue() >>> shift);
+            return (int) (o >>> shift);
         }
 
     }
@@ -676,8 +673,6 @@ public class MinimalPerfectHash<K> {
      * A sample hash implementation for integer keys.
      */
     public static class StringHash implements UniversalHash<String> {
-
-        private static final Charset UTF8 = Charset.forName("UTF-8");
 
         @Override
         public int hashCode(String o, int index, int seed) {
@@ -723,7 +718,7 @@ public class MinimalPerfectHash<K> {
          * @return the hash value
          */
         public static int getSipHash24(String o, long k0, long k1) {
-            byte[] b = o.getBytes(UTF8);
+            byte[] b = o.getBytes(StandardCharsets.UTF_8);
             return getSipHash24(b, 0, b.length, k0, k1);
         }
 
@@ -753,7 +748,7 @@ public class MinimalPerfectHash<K> {
                         m |= ((long) b[off + i] & 255) << (8 * i);
                     }
                     if (i < 8) {
-                        m |= ((long) b.length) << 56;
+                        m |= ((long) end - start) << 56;
                     }
                     v3 ^= m;
                     repeat = 2;

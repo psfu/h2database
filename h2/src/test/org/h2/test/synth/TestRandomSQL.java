@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.synth;
@@ -8,20 +8,17 @@ package org.h2.test.synth;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
-
 import org.h2.engine.SysProperties;
 import org.h2.store.fs.FileUtils;
-import org.h2.test.TestAll;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 import org.h2.util.MathUtils;
 
 /**
  * This test executes random SQL statements generated using the BNF tool.
  */
-public class TestRandomSQL extends TestBase {
+public class TestRandomSQL extends TestDb {
 
-    private int seed;
-    private boolean exitOnError = true;
     private int success, total;
 
     /**
@@ -33,41 +30,33 @@ public class TestRandomSQL extends TestBase {
         TestBase.createCaller().init().test();
     }
 
-    private void processException(String sql, SQLException e) {
-        if (e.getSQLState().equals("HY000")) {
-            TestBase.logError("new TestRandomSQL().init(test).testCase(" + seed + ");  " +
-                    "// FAIL: " + e.toString() + " sql: " + sql, e);
-            if (exitOnError) {
-                System.exit(0);
-            }
+    @Override
+    public boolean isEnabled() {
+        if (config.networked) {
+            return false;
         }
-    }
-
-    protected String getDatabaseName() {
-        return getTestName() + "/db" + seed;
-    }
-
-    private Connection connect() throws SQLException {
-        return getConnection(getDatabaseName());
-    }
-
-    private void deleteDb() {
-        FileUtils.delete(getDatabaseName());
+        return true;
     }
 
     @Override
-    public TestBase init(TestAll conf) throws Exception {
-        super.init(conf);
-        return this;
+    public void test() throws Exception {
+        int len = getSize(2, 6);
+        for (int a = 0; a < len; a++) {
+            int s = MathUtils.randomInt(Integer.MAX_VALUE);
+            testCase(s);
+        }
     }
 
-    private void testWithSeed() throws Exception {
+    private void testWithSeed(int seed) throws Exception {
         Connection conn = null;
         try {
-            conn = connect();
+            conn = getConnection(getDatabaseName(seed));
         } catch (SQLException e) {
-            processException("connect", e);
-            conn = connect();
+            if (e.getSQLState().equals("HY000")) {
+                TestBase.logError("new TestRandomSQL().init(test).testCase(" + seed + ");  " +
+                        "// FAIL: " + e.toString() + " sql: " + "connect", e);
+            }
+            conn = getConnection(getDatabaseName(seed));
         }
         Statement stat = conn.createStatement();
 
@@ -86,47 +75,48 @@ public class TestRandomSQL extends TestBase {
                     stat.execute(sql);
                     success++;
                 } catch (SQLException e) {
-                    processException(sql, e);
+                    if (e.getSQLState().equals("HY000")) {
+                        TestBase.logError(
+                                "new TestRandomSQL().init(test).testCase(" +
+                                        seed + ");  " + "// FAIL: " +
+                                        e.toString() + " sql: " + sql, e);
+                    }
                 }
             }
         }
         try {
             conn.close();
-            conn = connect();
+            conn = getConnection(getDatabaseName(seed));
             conn.createStatement().execute("shutdown immediately");
             conn.close();
         } catch (SQLException e) {
-            processException("conn.close", e);
+            if (e.getSQLState().equals("HY000")) {
+                TestBase.logError("new TestRandomSQL().init(test).testCase(" + seed + ");  " +
+                        "// FAIL: " + e.toString() + " sql: " + "conn.close", e);
+            }
         }
     }
 
-    @Override
-    public void testCase(int i) throws Exception {
+    private void testCase(int seed) throws Exception {
         String old = SysProperties.getScriptDirectory();
         try {
             System.setProperty(SysProperties.H2_SCRIPT_DIRECTORY,
                     getBaseDir() + "/" + getTestName());
-            seed = i;
             printTime("seed: " + seed);
-            deleteDb();
-            testWithSeed();
+            deleteDb(seed);
+            testWithSeed(seed);
         } finally {
             System.setProperty(SysProperties.H2_SCRIPT_DIRECTORY, old);
         }
-        deleteDb();
+        deleteDb(seed);
     }
 
-    @Override
-    public void test() throws Exception {
-        if (config.networked) {
-            return;
-        }
-        int len = getSize(2, 6);
-        exitOnError = false;
-        for (int a = 0; a < len; a++) {
-            int s = MathUtils.randomInt(Integer.MAX_VALUE);
-            testCase(s);
-        }
+    private String getDatabaseName(int seed) {
+        return getTestName() + "/db" + seed;
+    }
+
+    private void deleteDb(int seed) {
+        FileUtils.delete(getDatabaseName(seed));
     }
 
 }

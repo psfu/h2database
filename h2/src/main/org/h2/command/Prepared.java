@@ -1,11 +1,12 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.command;
 
 import java.util.ArrayList;
+import java.util.List;
 import org.h2.api.DatabaseEventListener;
 import org.h2.api.ErrorCode;
 import org.h2.engine.Database;
@@ -15,7 +16,8 @@ import org.h2.expression.Parameter;
 import org.h2.message.DbException;
 import org.h2.message.Trace;
 import org.h2.result.ResultInterface;
-import org.h2.util.StatementBuilder;
+import org.h2.table.TableView;
+import org.h2.util.MathUtils;
 import org.h2.value.Value;
 
 /**
@@ -52,9 +54,19 @@ public abstract class Prepared {
 
     private long modificationMetaId;
     private Command command;
-    private int objectId;
-    private int currentRowNumber;
+    /**
+     * Used to preserve object identities on database startup. {@code 0} if
+     * object is not stored, {@code -1} if object is stored and its ID is
+     * already read, {@code >0} if object is stored and its id is not yet read.
+     */
+    private int persistedObjectId;
+    private long currentRowNumber;
     private int rowScanCount;
+    /**
+     * Common table expressions (CTE) in queries require us to create temporary views,
+     * which need to be cleaned up once a command is done executing.
+     */
+    private List<TableView> cteCleanups;
 
     /**
      * Create a new object.
@@ -158,9 +170,13 @@ public abstract class Prepared {
      * @throws DbException if any parameter has not been set
      */
     protected void checkParameters() {
+        if (persistedObjectId < 0) {
+            // restore original persistedObjectId on Command re-run
+            // i.e. due to concurrent update
+            persistedObjectId = -persistedObjectId - 1;
+        }
         if (parameters != null) {
-            for (int i = 0, size = parameters.size(); i < size; i++) {
-                Parameter param = parameters.get(i);
+            for (Parameter param : parameters) {
                 param.checkSet();
             }
         }
@@ -208,6 +224,7 @@ public abstract class Prepared {
      * @return the result set
      * @throws DbException if it is not a query
      */
+    @SuppressWarnings("unused")
     public ResultInterface query(int maxrows) {
         throw DbException.get(ErrorCode.METHOD_ONLY_ALLOWED_FOR_QUERY);
     }
@@ -232,37 +249,41 @@ public abstract class Prepared {
 
     /**
      * Get the object id to use for the database object that is created in this
-     * statement. This id is only set when the object is persistent.
+     * statement. This id is only set when the object is already persisted.
      * If not set, this method returns 0.
      *
      * @return the object id or 0 if not set
      */
-    protected int getCurrentObjectId() {
-        return objectId;
+    protected int getPersistedObjectId() {
+        int id = persistedObjectId;
+        return id >= 0 ? id : 0;
     }
 
     /**
      * Get the current object id, or get a new id from the database. The object
-     * id is used when creating new database object (CREATE statement).
+     * id is used when creating new database object (CREATE statement). This
+     * method may be called only once.
      *
      * @return the object id
      */
     protected int getObjectId() {
-        int id = objectId;
+        int id = persistedObjectId;
         if (id == 0) {
             id = session.getDatabase().allocateObjectId();
-        } else {
-            objectId = 0;
+        } else if (id < 0) {
+            throw DbException.throwInternalError("Prepared.getObjectId() was called before");
         }
+        persistedObjectId = -persistedObjectId - 1;  // while negative, it can be restored later
         return id;
     }
 
     /**
      * Get the SQL statement with the execution plan.
      *
+     * @param alwaysQuote quote all identifiers
      * @return the execution plan
      */
-    public String getPlanSQL() {
+    public String getPlanSQL(boolean alwaysQuote) {
         return null;
     }
 
@@ -280,12 +301,12 @@ public abstract class Prepared {
     }
 
     /**
-     * Set the object id for this statement.
+     * Set the persisted object id for this statement.
      *
      * @param i the object id
      */
-    public void setObjectId(int i) {
-        this.objectId = i;
+    public void setPersistedObjectId(int i) {
+        this.persistedObjectId = i;
         this.create = false;
     }
 
@@ -302,19 +323,22 @@ public abstract class Prepared {
      * Print information about the statement executed if info trace level is
      * enabled.
      *
-     * @param startTime when the statement was started
+     * @param startTimeNanos when the statement was started
      * @param rowCount the query or update row count
      */
-    void trace(long startTime, int rowCount) {
-        if (session.getTrace().isInfoEnabled() && startTime > 0) {
-            long deltaTime = System.currentTimeMillis() - startTime;
+    void trace(long startTimeNanos, int rowCount) {
+        if (session.getTrace().isInfoEnabled() && startTimeNanos > 0) {
+            long deltaTimeNanos = System.nanoTime() - startTimeNanos;
             String params = Trace.formatParams(parameters);
-            session.getTrace().infoSQL(sqlStatement, params, rowCount, deltaTime);
+            session.getTrace().infoSQL(sqlStatement, params, rowCount,
+                    deltaTimeNanos / 1000 / 1000);
         }
-        if (session.getDatabase().getQueryStatistics()) {
-            long deltaTime = System.currentTimeMillis() - startTime;
+        // startTime_nanos can be zero for the command that actually turns on
+        // statistics
+        if (session.getDatabase().getQueryStatistics() && startTimeNanos != 0) {
+            long deltaTimeNanos = System.nanoTime() - startTimeNanos;
             session.getDatabase().getQueryStatisticsData().
-                    update(toString(), deltaTime, rowCount);
+                    update(toString(), deltaTimeNanos, rowCount);
         }
     }
 
@@ -333,7 +357,7 @@ public abstract class Prepared {
      *
      * @param rowNumber the row number
      */
-    protected void setCurrentRowNumber(int rowNumber) {
+    public void setCurrentRowNumber(long rowNumber) {
         if ((++rowScanCount & 127) == 0) {
             checkCanceled();
         }
@@ -346,7 +370,7 @@ public abstract class Prepared {
      *
      * @return the row number
      */
-    public int getCurrentRowNumber() {
+    public long getCurrentRowNumber() {
         return currentRowNumber;
     }
 
@@ -357,7 +381,9 @@ public abstract class Prepared {
         if ((currentRowNumber & 127) == 0) {
             session.getDatabase().setProgress(
                     DatabaseEventListener.STATE_STATEMENT_PROGRESS,
-                    sqlStatement, currentRowNumber, 0);
+                    sqlStatement,
+                    // TODO update interface
+                    MathUtils.convertLongToInt(currentRowNumber), 0);
         }
     }
 
@@ -378,14 +404,17 @@ public abstract class Prepared {
      * @return the SQL snippet
      */
     protected static String getSQL(Value[] values) {
-        StatementBuilder buff = new StatementBuilder();
-        for (Value v : values) {
-            buff.appendExceptFirst(", ");
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0, l = values.length; i < l; i++) {
+            if (i > 0) {
+                builder.append(", ");
+            }
+            Value v = values[i];
             if (v != null) {
-                buff.append(v.getSQL());
+                v.getSQL(builder);
             }
         }
-        return buff.toString();
+        return builder.toString();
     }
 
     /**
@@ -394,15 +423,10 @@ public abstract class Prepared {
      * @param list the expression list
      * @return the SQL snippet
      */
-    protected static String getSQL(Expression[] list) {
-        StatementBuilder buff = new StatementBuilder();
-        for (Expression e : list) {
-            buff.appendExceptFirst(", ");
-            if (e != null) {
-                buff.append(e.getSQL());
-            }
-        }
-        return buff.toString();
+    protected static String getSimpleSQL(Expression[] list) {
+        StringBuilder builder = new StringBuilder();
+        Expression.writeExpressions(builder, list, false);
+        return builder.toString();
     }
 
     /**
@@ -430,4 +454,23 @@ public abstract class Prepared {
         return false;
     }
 
+    /**
+     * @return the temporary views created for CTE's.
+     */
+    public List<TableView> getCteCleanups() {
+        return cteCleanups;
+    }
+
+    /**
+     * Set the temporary views created for CTE's.
+     *
+     * @param cteCleanups the temporary views
+     */
+    public void setCteCleanups(List<TableView> cteCleanups) {
+        this.cteCleanups = cteCleanups;
+    }
+
+    public Session getSession() {
+        return session;
+    }
 }

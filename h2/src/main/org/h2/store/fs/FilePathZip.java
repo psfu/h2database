@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.store.fs;
@@ -18,7 +18,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.h2.message.DbException;
 import org.h2.util.IOUtils;
-import org.h2.util.New;
 
 /**
  * This is a read-only file system that allows
@@ -52,14 +51,11 @@ public class FilePathZip extends FilePath {
     public boolean exists() {
         try {
             String entryName = getEntryName();
-            if (entryName.length() == 0) {
+            if (entryName.isEmpty()) {
                 return true;
             }
-            ZipFile file = openZipFile();
-            try {
+            try (ZipFile file = openZipFile()) {
                 return file.getEntry(entryName) != null;
-            } finally {
-                file.close();
             }
         } catch (IOException e) {
             return false;
@@ -92,11 +88,10 @@ public class FilePathZip extends FilePath {
     public boolean isDirectory() {
         try {
             String entryName = getEntryName();
-            if (entryName.length() == 0) {
+            if (entryName.isEmpty()) {
                 return true;
             }
-            ZipFile file = openZipFile();
-            try {
+            try (ZipFile file = openZipFile()) {
                 Enumeration<? extends ZipEntry> en = file.entries();
                 while (en.hasMoreElements()) {
                     ZipEntry entry = en.nextElement();
@@ -111,8 +106,6 @@ public class FilePathZip extends FilePath {
                         }
                     }
                 }
-            } finally {
-                file.close();
             }
             return false;
         } catch (IOException e) {
@@ -133,12 +126,9 @@ public class FilePathZip extends FilePath {
     @Override
     public long size() {
         try {
-            ZipFile file = openZipFile();
-            try {
+            try (ZipFile file = openZipFile()) {
                 ZipEntry entry = file.getEntry(getEntryName());
                 return entry == null ? 0 : entry.getSize();
-            } finally {
-                file.close();
             }
         } catch (IOException e) {
             return 0;
@@ -148,7 +138,7 @@ public class FilePathZip extends FilePath {
     @Override
     public ArrayList<FilePath> newDirectoryStream() {
         String path = name;
-        ArrayList<FilePath> list = New.arrayList();
+        ArrayList<FilePath> list = new ArrayList<>();
         try {
             if (path.indexOf('!') < 0) {
                 path += "!";
@@ -156,8 +146,7 @@ public class FilePathZip extends FilePath {
             if (!path.endsWith("/")) {
                 path += "/";
             }
-            ZipFile file = openZipFile();
-            try {
+            try (ZipFile file = openZipFile()) {
                 String dirName = getEntryName();
                 String prefix = path.substring(0, path.length() - dirName.length());
                 Enumeration<? extends ZipEntry> en = file.entries();
@@ -175,8 +164,6 @@ public class FilePathZip extends FilePath {
                         list.add(getPath(prefix + name));
                     }
                 }
-            } finally {
-                file.close();
             }
             return list;
         } catch (IOException e) {
@@ -247,13 +234,11 @@ public class FilePathZip extends FilePath {
     }
 
     @Override
-    public FilePath createTempFile(String suffix, boolean deleteOnExit,
-            boolean inTempDir) throws IOException {
+    public FilePath createTempFile(String suffix, boolean inTempDir) throws IOException {
         if (!inTempDir) {
             throw new IOException("File system is read-only");
         }
-        return new FilePathDisk().getPath(name).createTempFile(suffix,
-                deleteOnExit, true);
+        return new FilePathDisk().getPath(name).createTempFile(suffix, true);
     }
 
     @Override
@@ -366,8 +351,7 @@ class FileZip extends FileBase {
     public synchronized FileLock tryLock(long position, long size,
             boolean shared) throws IOException {
         if (shared) {
-            // cast to FileChannel to avoid JDK 1.7 ambiguity
-            return new FileLock((FileChannel) null, position, size, shared) {
+            return new FileLock(FakeFileChannel.INSTANCE, position, size, shared) {
 
                 @Override
                 public boolean isValid() {

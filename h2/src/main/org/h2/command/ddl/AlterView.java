@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.command.ddl;
@@ -17,10 +17,15 @@ import org.h2.table.TableView;
  */
 public class AlterView extends DefineCommand {
 
+    private boolean ifExists;
     private TableView view;
 
     public AlterView(Session session) {
         super(session);
+    }
+
+    public void setIfExists(boolean b) {
+        ifExists = b;
     }
 
     public void setView(TableView view) {
@@ -30,8 +35,11 @@ public class AlterView extends DefineCommand {
     @Override
     public int update() {
         session.commit(true);
+        if (view == null && ifExists) {
+            return 0;
+        }
         session.getUser().checkRight(view, Right.ALL);
-        DbException e = view.recompile(session, false);
+        DbException e = view.recompile(session, false, true);
         if (e != null) {
             throw e;
         }

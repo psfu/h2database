@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.util;
@@ -13,6 +13,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.util.concurrent.TimeUnit;
 
 import org.h2.api.ErrorCode;
 import org.h2.engine.SysProperties;
@@ -43,12 +44,9 @@ public class NetUtils {
      */
     public static Socket createLoopbackSocket(int port, boolean ssl)
             throws IOException {
-        InetAddress address = getBindAddress();
-        if (address == null) {
-            address = InetAddress.getLocalHost();
-        }
+        String local = getLocalAddress();
         try {
-            return createSocket(getHostAddress(address), port, ssl);
+            return createSocket(local, port, ssl);
         } catch (IOException e) {
             try {
                 return createSocket("localhost", port, ssl);
@@ -57,23 +55,6 @@ public class NetUtils {
                 throw e;
             }
         }
-    }
-
-    /**
-     * Get the host address. This method adds '[' and ']' if required for
-     * Inet6Address that contain a ':'.
-     *
-     * @param address the address
-     * @return the host address
-     */
-    private static String getHostAddress(InetAddress address) {
-        String host = address.getHostAddress();
-        if (address instanceof Inet6Address) {
-            if (host.indexOf(':') >= 0 && !host.startsWith("[")) {
-                host = "[" + host + "]";
-            }
-        }
-        return host;
     }
 
     /**
@@ -112,7 +93,7 @@ public class NetUtils {
      */
     public static Socket createSocket(InetAddress address, int port, boolean ssl)
             throws IOException {
-        long start = System.currentTimeMillis();
+        long start = System.nanoTime();
         for (int i = 0;; i++) {
             try {
                 if (ssl) {
@@ -123,8 +104,8 @@ public class NetUtils {
                         SysProperties.SOCKET_CONNECT_TIMEOUT);
                 return socket;
             } catch (IOException e) {
-                if (System.currentTimeMillis() - start >=
-                        SysProperties.SOCKET_CONNECT_TIMEOUT) {
+                if (System.nanoTime() - start >=
+                        TimeUnit.MILLISECONDS.toNanos(SysProperties.SOCKET_CONNECT_TIMEOUT)) {
                     // either it was a connect timeout,
                     // or list of different exceptions
                     throw e;
@@ -146,7 +127,12 @@ public class NetUtils {
 
     /**
      * Create a server socket. The system property h2.bindAddress is used if
-     * set.
+     * set. If SSL is used and h2.enableAnonymousTLS is true, an attempt is
+     * made to modify the security property jdk.tls.legacyAlgorithms
+     * (in newer JVMs) to allow anonymous TLS.
+     * <p>
+     * This system change is effectively permanent for the lifetime of the JVM.
+     * @see CipherFactory#removeAnonFromLegacyAlgorithms()
      *
      * @param port the port to listen on
      * @param ssl if SSL should be used
@@ -169,7 +155,7 @@ public class NetUtils {
      */
     private static InetAddress getBindAddress() throws UnknownHostException {
         String host = SysProperties.BIND_ADDRESS;
-        if (host == null || host.length() == 0) {
+        if (host == null || host.isEmpty()) {
             return null;
         }
         synchronized (NetUtils.class) {
@@ -192,7 +178,7 @@ public class NetUtils {
             return new ServerSocket(port, 0, bindAddress);
         } catch (BindException be) {
             throw DbException.get(ErrorCode.EXCEPTION_OPENING_PORT_2,
-                    be, "" + port, be.toString());
+                    be, Integer.toString(port), be.toString());
         } catch (IOException e) {
             throw DbException.convertIOException(e, "port: " + port + " ssl: " + ssl);
         }
@@ -211,7 +197,7 @@ public class NetUtils {
             return true;
         }
         InetAddress localhost = InetAddress.getLocalHost();
-        // localhost.getCanonicalHostName() is very very slow
+        // localhost.getCanonicalHostName() is very slow
         String host = localhost.getHostAddress();
         for (InetAddress addr : InetAddress.getAllByName(host)) {
             if (test.equals(addr)) {
@@ -245,9 +231,9 @@ public class NetUtils {
      * @return the local host address
      */
     public static synchronized String getLocalAddress() {
-        long now = System.currentTimeMillis();
+        long now = System.nanoTime();
         if (cachedLocalAddress != null) {
-            if (cachedLocalAddressTime + CACHE_MILLIS > now) {
+            if (cachedLocalAddressTime + TimeUnit.MILLISECONDS.toNanos(CACHE_MILLIS) > now) {
                 return cachedLocalAddress;
             }
         }
@@ -268,7 +254,21 @@ public class NetUtils {
                 throw DbException.convert(e);
             }
         }
-        String address = bind == null ? "localhost" : getHostAddress(bind);
+        String address;
+        if (bind == null) {
+            address = "localhost";
+        } else {
+            address = bind.getHostAddress();
+            if (bind instanceof Inet6Address) {
+                if (address.indexOf('%') >= 0) {
+                    address = "localhost";
+                } else if (address.indexOf(':') >= 0 && !address.startsWith("[")) {
+                    // adds'[' and ']' if required for
+                    // Inet6Address that contain a ':'.
+                    address = "[" + address + "]";
+                }
+            }
+        }
         if (address.equals("127.0.0.1")) {
             address = "localhost";
         }
@@ -290,6 +290,80 @@ public class NetUtils {
         } catch (Exception e) {
             return "unknown";
         }
+    }
+
+    /**
+     * Appends short representation of the specified IP address to the string
+     * builder.
+     *
+     * @param builder
+     *            string builder to append to, or {@code null}
+     * @param address
+     *            IP address
+     * @param addBrackets
+     *            if ({@code true}, add brackets around IPv6 addresses
+     * @return the specified or the new string builder with short representation
+     *         of specified address
+     */
+    public static StringBuilder ipToShortForm(StringBuilder builder, byte[] address, boolean addBrackets) {
+        switch (address.length) {
+        case 4:
+            if (builder == null) {
+                builder = new StringBuilder(15);
+            }
+            builder //
+                    .append(address[0] & 0xff).append('.') //
+                    .append(address[1] & 0xff).append('.') //
+                    .append(address[2] & 0xff).append('.') //
+                    .append(address[3] & 0xff).toString();
+            break;
+        case 16:
+            short[] a = new short[8];
+            int maxStart = 0, maxLen = 0, currentLen = 0;
+            for (int i = 0, offset = 0; i < 8; i++) {
+                if ((a[i] = (short) ((address[offset++] & 0xff) << 8 | address[offset++] & 0xff)) == 0) {
+                    currentLen++;
+                    if (currentLen > maxLen) {
+                        maxLen = currentLen;
+                        maxStart = i - currentLen + 1;
+                    }
+                } else {
+                    currentLen = 0;
+                }
+            }
+            if (builder == null) {
+                builder = new StringBuilder(addBrackets ? 41 : 39);
+            }
+            if (addBrackets) {
+                builder.append('[');
+            }
+            int start;
+            if (maxLen > 1) {
+                for (int i = 0; i < maxStart; i++) {
+                    builder.append(Integer.toHexString(a[i] & 0xffff)).append(':');
+                }
+                if (maxStart == 0) {
+                    builder.append(':');
+                }
+                builder.append(':');
+                start = maxStart + maxLen;
+            } else {
+                start = 0;
+            }
+            for (int i = start; i < 8; i++) {
+                builder.append(Integer.toHexString(a[i] & 0xffff));
+                if (i < 7) {
+                    builder.append(':');
+                }
+            }
+            if (addBrackets) {
+                builder.append(']');
+            }
+            break;
+        default:
+            StringUtils.convertBytesToHex(builder, address);
+        }
+        return builder;
     }
 
 }

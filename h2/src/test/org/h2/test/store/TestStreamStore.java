@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.store;
@@ -13,8 +13,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import org.h2.mvstore.DataUtils;
 import org.h2.mvstore.MVMap;
 import org.h2.mvstore.MVStore;
@@ -22,7 +22,6 @@ import org.h2.mvstore.StreamStore;
 import org.h2.store.fs.FileUtils;
 import org.h2.test.TestBase;
 import org.h2.util.IOUtils;
-import org.h2.util.New;
 import org.h2.util.StringUtils;
 
 /**
@@ -41,6 +40,7 @@ public class TestStreamStore extends TestBase {
 
     @Override
     public void test() throws IOException {
+        testMaxBlockKey();
         testIOException();
         testSaveCount();
         testExceptionDuringStore();
@@ -54,8 +54,25 @@ public class TestStreamStore extends TestBase {
         testLoop();
     }
 
+    private void testMaxBlockKey() throws IOException {
+        TreeMap<Long, byte[]> map = new TreeMap<>();
+        StreamStore s = new StreamStore(map);
+        s.setMaxBlockSize(128);
+        s.setMinBlockSize(64);
+        map.clear();
+        for (int len = 1; len < 1024 * 1024; len *= 2) {
+            byte[] id = s.put(new ByteArrayInputStream(new byte[len]));
+            long max = s.getMaxBlockKey(id);
+            if (max == -1) {
+                assertTrue(map.isEmpty());
+            } else {
+                assertEquals(map.lastKey(), (Long) max);
+            }
+        }
+    }
+
     private void testIOException() throws IOException {
-        HashMap<Long, byte[]> map = New.hashMap();
+        HashMap<Long, byte[]> map = new HashMap<>();
         StreamStore s = new StreamStore(map);
         byte[] id = s.put(new ByteArrayInputStream(new byte[1024 * 1024]));
         InputStream in = s.get(id);
@@ -94,7 +111,7 @@ public class TestStreamStore extends TestBase {
     private void testExceptionDuringStore() throws IOException {
         // test that if there is an IOException while storing
         // the data, the entries in the map are "rolled back"
-        HashMap<Long, byte[]> map = New.hashMap();
+        HashMap<Long, byte[]> map = new HashMap<>();
         StreamStore s = new StreamStore(map);
         s.setMaxBlockSize(1024);
         assertThrows(IOException.class, s).
@@ -134,7 +151,7 @@ public class TestStreamStore extends TestBase {
         long readCount = s.getFileStore().getReadCount();
         // the read count should be low because new blocks
         // are appended at the end (not between existing blocks)
-        assertTrue("rc: " + readCount, readCount < 15);
+        assertTrue("rc: " + readCount, readCount <= 20);
         map = s.openMap("data");
         assertTrue("size: " + map.size(), map.sizeAsLong() >= 200);
         s.close();
@@ -215,7 +232,7 @@ public class TestStreamStore extends TestBase {
     }
 
     private void testDetectIllegalId() throws IOException {
-        Map<Long, byte[]> map = New.hashMap();
+        Map<Long, byte[]> map = new HashMap<>();
         StreamStore store = new StreamStore(map);
         try {
             store.length(new byte[]{3, 0, 0});
@@ -265,7 +282,7 @@ public class TestStreamStore extends TestBase {
     }
 
     private void testFormat() throws IOException {
-        Map<Long, byte[]> map = New.hashMap();
+        Map<Long, byte[]> map = new HashMap<>();
         StreamStore store = new StreamStore(map);
         store.setMinBlockSize(10);
         store.setMaxBlockSize(20);
@@ -321,7 +338,7 @@ public class TestStreamStore extends TestBase {
         assertEquals(10, map.size());
         assertEquals(10, tests.get());
         for (int i = 0; i < 10; i++) {
-            map.containsKey(i);
+            map.containsKey((long)i);
         }
         assertEquals(20, tests.get());
         store = new StreamStore(map);
@@ -336,7 +353,7 @@ public class TestStreamStore extends TestBase {
         assertEquals(15, store.getNextKey());
         assertEquals(15, map.size());
         for (int i = 0; i < 15; i++) {
-            map.containsKey(i);
+            map.containsKey((long)i);
         }
     }
 
@@ -368,7 +385,7 @@ public class TestStreamStore extends TestBase {
     }
 
     private void testLoop() throws IOException {
-        Map<Long, byte[]> map = New.hashMap();
+        Map<Long, byte[]> map = new HashMap<>();
         StreamStore store = new StreamStore(map);
         assertEquals(256 * 1024, store.getMaxBlockSize());
         assertEquals(256, store.getMinBlockSize());

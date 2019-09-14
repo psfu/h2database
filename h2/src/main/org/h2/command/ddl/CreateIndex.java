@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.command.ddl;
@@ -26,12 +26,17 @@ public class CreateIndex extends SchemaCommand {
     private String tableName;
     private String indexName;
     private IndexColumn[] indexColumns;
-    private boolean primaryKey, unique, hash, spatial;
+    private boolean primaryKey, unique, hash, spatial, affinity;
+    private boolean ifTableExists;
     private boolean ifNotExists;
     private String comment;
 
     public CreateIndex(Session session, Schema schema) {
         super(session, schema);
+    }
+
+    public void setIfTableExists(boolean b) {
+        this.ifTableExists = b;
     }
 
     public void setIfNotExists(boolean ifNotExists) {
@@ -57,8 +62,14 @@ public class CreateIndex extends SchemaCommand {
         }
         Database db = session.getDatabase();
         boolean persistent = db.isPersistent();
-        Table table = getSchema().getTableOrView(session, tableName);
-        if (getSchema().findIndex(session, indexName) != null) {
+        Table table = getSchema().findTableOrView(session, tableName);
+        if (table == null) {
+            if (ifTableExists) {
+                return 0;
+            }
+            throw DbException.get(ErrorCode.TABLE_OR_VIEW_NOT_FOUND_1, tableName);
+        }
+        if (indexName != null && getSchema().findIndex(session, indexName) != null) {
             if (ifNotExists) {
                 return 0;
             }
@@ -87,6 +98,8 @@ public class CreateIndex extends SchemaCommand {
             indexType = IndexType.createPrimaryKey(persistent, hash);
         } else if (unique) {
             indexType = IndexType.createUnique(persistent, hash);
+        } else if (affinity) {
+            indexType = IndexType.createAffinity();
         } else {
             indexType = IndexType.createNonUnique(persistent, hash, spatial);
         }
@@ -110,6 +123,10 @@ public class CreateIndex extends SchemaCommand {
 
     public void setSpatial(boolean b) {
         this.spatial = b;
+    }
+
+    public void setAffinity(boolean b) {
+        this.affinity = b;
     }
 
     public void setComment(String comment) {

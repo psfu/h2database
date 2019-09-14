@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.tools;
@@ -9,7 +9,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
-
 import org.h2.util.JdbcUtils;
 import org.h2.util.StringUtils;
 import org.h2.util.Tool;
@@ -134,13 +133,10 @@ public class Script extends Tool {
      */
     public static void process(Connection conn,
             String fileName, String options1, String options2) throws SQLException {
-        Statement stat = null;
-        try {
-            stat = conn.createStatement();
+
+        try (Statement stat = conn.createStatement()) {
             String sql = "SCRIPT " + options1 + " TO '" + fileName + "' " + options2;
             stat.execute(sql);
-        } finally {
-            JdbcUtils.closeSilently(stat);
         }
     }
 

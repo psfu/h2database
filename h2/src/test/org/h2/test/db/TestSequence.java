@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.db;
@@ -13,15 +13,15 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
 import org.h2.api.Trigger;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 import org.h2.util.Task;
 
 /**
  * Tests the sequence feature of this database.
  */
-public class TestSequence extends TestBase {
+public class TestSequence extends TestDb {
 
     /**
      * Run just this test.
@@ -64,8 +64,7 @@ public class TestSequence extends TestBase {
                 tasks[i] = new Task() {
                     @Override
                     public void call() throws Exception {
-                        Connection conn = getConnection(url);
-                        try {
+                        try (Connection conn = getConnection(url)) {
                             PreparedStatement prep = conn.prepareStatement(
                                     "insert into test(id) values(next value for test_seq)");
                             PreparedStatement prep2 = conn.prepareStatement(
@@ -79,8 +78,6 @@ public class TestSequence extends TestBase {
                                     createDropTrigger(conn);
                                 }
                             }
-                        } finally {
-                            conn.close();
                         }
                     }
 
@@ -316,23 +313,23 @@ public class TestSequence extends TestBase {
                 "minvalue 2 maxvalue 9 nocycle cache 2");
         stat.execute("create sequence d nomaxvalue no minvalue no cache nocycle");
         stat.execute("create sequence e cache 1");
-        List<String> script = new ArrayList<String>();
+        List<String> script = new ArrayList<>();
         ResultSet rs = stat.executeQuery("script nodata");
         while (rs.next()) {
             script.add(rs.getString(1));
         }
         Collections.sort(script);
-        assertEquals("CREATE SEQUENCE PUBLIC.A START WITH 1;", script.get(0));
-        assertEquals("CREATE SEQUENCE PUBLIC.B START " +
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"A\" START WITH 1;", script.get(0));
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"B\" START " +
                 "WITH 5 INCREMENT BY 2 " +
-                "MINVALUE 3 MAXVALUE 7 CYCLE CACHE 1;", script.get(1));
-        assertEquals("CREATE SEQUENCE PUBLIC.C START " +
+                "MINVALUE 3 MAXVALUE 7 CYCLE NO CACHE;", script.get(1));
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"C\" START " +
                 "WITH 3 MINVALUE 2 MAXVALUE 9 CACHE 2;",
                 script.get(2));
-        assertEquals("CREATE SEQUENCE PUBLIC.D START " +
-                "WITH 1 CACHE 1;", script.get(3));
-        assertEquals("CREATE SEQUENCE PUBLIC.E START " +
-                "WITH 1 CACHE 1;", script.get(4));
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"D\" START " +
+                "WITH 1 NO CACHE;", script.get(3));
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"E\" START " +
+                "WITH 1 NO CACHE;", script.get(4));
         conn.close();
     }
 
@@ -397,7 +394,7 @@ public class TestSequence extends TestBase {
                 getNext(stat);
                 fail("Expected error: " + finalError);
             } catch (SQLException e) {
-                assertTrue(e.getMessage().contains(finalError));
+                assertContains(e.getMessage(), finalError);
             }
         }
 
@@ -409,7 +406,7 @@ public class TestSequence extends TestBase {
             stat.execute(sql);
             fail("Expected error: " + error);
         } catch (SQLException e) {
-            assertTrue(e.getMessage(), e.getMessage().contains(error));
+            assertContains(e.getMessage(), error);
         }
     }
 

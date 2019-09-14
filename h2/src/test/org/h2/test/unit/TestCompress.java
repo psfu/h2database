@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.unit;
@@ -17,20 +17,22 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
 import org.h2.compress.CompressLZF;
 import org.h2.compress.Compressor;
 import org.h2.engine.Constants;
 import org.h2.store.fs.FileUtils;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 import org.h2.tools.CompressTool;
 import org.h2.util.IOUtils;
-import org.h2.util.New;
 import org.h2.util.Task;
 
 /**
  * Data compression tests.
  */
-public class TestCompress extends TestBase {
+public class TestCompress extends TestDb {
 
     private boolean testPerformance;
     private final byte[] buff = new byte[10];
@@ -159,7 +161,7 @@ public class TestCompress extends TestBase {
         byte[] test = new byte[2 * pageSize];
         compress.compress(buff2, pageSize, test, 0);
         for (int j = 0; j < 4; j++) {
-            long time = System.currentTimeMillis();
+            long time = System.nanoTime();
             for (int i = 0; i < 1000; i++) {
                 InputStream in = FileUtils.newInputStream("memFS:compress.h2.db");
                 while (true) {
@@ -171,11 +173,13 @@ public class TestCompress extends TestBase {
                 }
                 in.close();
             }
-            System.out.println("compress: " + (System.currentTimeMillis() - time) + " ms");
+            System.out.println("compress: " +
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time) +
+                    " ms");
         }
 
         for (int j = 0; j < 4; j++) {
-            ArrayList<byte[]> comp = New.arrayList();
+            ArrayList<byte[]> comp = new ArrayList<>();
             InputStream in = FileUtils.newInputStream("memFS:compress.h2.db");
             while (true) {
                 int len = in.read(buff2);
@@ -183,20 +187,21 @@ public class TestCompress extends TestBase {
                     break;
                 }
                 int b = compress.compress(buff2, pageSize, test, 0);
-                byte[] data = new byte[b];
-                System.arraycopy(test, 0, data, 0, b);
+                byte[] data = Arrays.copyOf(test, b);
                 comp.add(data);
             }
             in.close();
             byte[] result = new byte[pageSize];
-            long time = System.currentTimeMillis();
+            long time = System.nanoTime();
             for (int i = 0; i < 1000; i++) {
                 for (int k = 0; k < comp.size(); k++) {
                     byte[] data = comp.get(k);
                     compress.expand(data, 0, data.length, result, 0, pageSize);
                 }
             }
-            System.out.println("expand: " + (System.currentTimeMillis() - time) + " ms");
+            System.out.println("expand: " +
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time) +
+                    " ms");
         }
     }
 
@@ -242,12 +247,17 @@ public class TestCompress extends TestBase {
             // level 9 is highest, strategy 2 is huffman only
             for (String a : new String[] { "LZF", "No",
                     "Deflate", "Deflate level 9 strategy 2" }) {
-                long time = System.currentTimeMillis();
+                long time = System.nanoTime();
                 byte[] out = utils.compress(b, a);
                 byte[] test = utils.expand(out);
                 if (testPerformance) {
-                    System.out.println("p:" + pattern + " len: " + out.length +
-                            " time: " + (System.currentTimeMillis() - time) + " " + a);
+                    System.out.println("p:" +
+                            pattern +
+                            " len: " +
+                            out.length +
+                            " time: " +
+                            TimeUnit.NANOSECONDS.toMillis(System.nanoTime() -
+                                    time) + " " + a);
                 }
                 assertEquals(b.length, test.length);
                 assertEquals(b, test);

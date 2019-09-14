@@ -1,14 +1,14 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.index;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+
 import org.h2.engine.Session;
-import org.h2.expression.Comparison;
+import org.h2.expression.condition.Comparison;
 import org.h2.message.DbException;
 import org.h2.result.ResultInterface;
 import org.h2.result.Row;
@@ -32,7 +32,6 @@ import org.h2.value.ValueNull;
  */
 public class IndexCursor implements Cursor {
 
-    private Session session;
     private final TableFilter tableFilter;
     private Index index;
     private Table table;
@@ -45,7 +44,6 @@ public class IndexCursor implements Cursor {
     private int inListIndex;
     private Value[] inList;
     private ResultInterface inResult;
-    private HashSet<Value> inResultTested;
 
     public IndexCursor(TableFilter filter) {
         this.tableFilter = filter;
@@ -68,26 +66,27 @@ public class IndexCursor implements Cursor {
     }
 
     /**
-     * Re-evaluate the start and end values of the index search for rows.
+     * Prepare this index cursor to make a lookup in index.
      *
-     * @param s the session
-     * @param indexConditions the index conditions
+     * @param s Session.
+     * @param indexConditions Index conditions.
      */
-    public void find(Session s, ArrayList<IndexCondition> indexConditions) {
-        this.session = s;
+    public void prepare(Session s, ArrayList<IndexCondition> indexConditions) {
         alwaysFalse = false;
         start = end = null;
         inList = null;
         inColumn = null;
         inResult = null;
-        inResultTested = null;
         intersects = null;
-        // don't use enhanced for loop to avoid creating objects
-        for (int i = 0, size = indexConditions.size(); i < size; i++) {
-            IndexCondition condition = indexConditions.get(i);
+        for (IndexCondition condition : indexConditions) {
             if (condition.isAlwaysFalse()) {
                 alwaysFalse = true;
                 break;
+            }
+            // If index can perform only full table scan do not try to use it for regular
+            // lookups, each such lookup will perform an own table scan.
+            if (index.isFindUsingFullTableScan()) {
+                continue;
             }
             Column column = condition.getColumn();
             if (condition.getCompareType() == Comparison.IN_LIST) {
@@ -111,7 +110,7 @@ public class IndexCursor implements Cursor {
                 boolean isEnd = condition.isEnd();
                 boolean isIntersects = condition.isSpatialIntersects();
                 int columnId = column.getColumnId();
-                if (columnId >= 0) {
+                if (columnId != SearchRow.ROWID_INDEX) {
                     IndexColumn idxCol = indexColumns[columnId];
                     if (idxCol != null && (idxCol.sortType & SortOrder.DESCENDING) != 0) {
                         // if the index column is sorted the other way, we swap
@@ -131,31 +130,36 @@ public class IndexCursor implements Cursor {
                 if (isIntersects) {
                     intersects = getSpatialSearchRow(intersects, columnId, v);
                 }
-                if (isStart || isEnd) {
-                    // an X=? condition will produce less rows than
-                    // an X IN(..) condition
+                // An X=? condition will produce less rows than
+                // an X IN(..) condition, unless the X IN condition can use the index.
+                if ((isStart || isEnd) && !canUseIndexFor(inColumn)) {
                     inColumn = null;
                     inList = null;
                     inResult = null;
                 }
-                if (!session.getDatabase().getSettings().optimizeIsNull) {
-                    if (isStart && isEnd) {
-                        if (v == ValueNull.INSTANCE) {
-                            // join on a column=NULL is always false
-                            alwaysFalse = true;
-                        }
-                    }
-                }
             }
         }
+        if (inColumn != null) {
+            start = table.getTemplateRow();
+        }
+    }
+
+    /**
+     * Re-evaluate the start and end values of the index search for rows.
+     *
+     * @param s the session
+     * @param indexConditions the index conditions
+     */
+    public void find(Session s, ArrayList<IndexCondition> indexConditions) {
+        prepare(s, indexConditions);
         if (inColumn != null) {
             return;
         }
         if (!alwaysFalse) {
             if (intersects != null && index instanceof SpatialIndex) {
                 cursor = ((SpatialIndex) index).findByGeometry(tableFilter,
-                        intersects);
-            } else {
+                        start, end, intersects);
+            } else if (index != null) {
                 cursor = index.find(tableFilter, start, end);
             }
         }
@@ -166,6 +170,10 @@ public class IndexCursor implements Cursor {
             // only one IN(..) condition can be used at the same time
             return false;
         }
+        return canUseIndexFor(column);
+    }
+
+    private boolean canUseIndexFor(Column column) {
         // The first column of the index must match this column,
         // or it must be a VIEW index (where the column is null).
         // Multiple IN conditions with views are not supported, see
@@ -183,14 +191,14 @@ public class IndexCursor implements Cursor {
             row = table.getTemplateRow();
         } else if (row.getValue(columnId) != null) {
             // if an object needs to overlap with both a and b,
-            // then it needs to overlap with the the union of a and b
+            // then it needs to overlap with the union of a and b
             // (not the intersection)
             ValueGeometry vg = (ValueGeometry) row.getValue(columnId).
                     convertTo(Value.GEOMETRY);
             v = ((ValueGeometry) v.convertTo(Value.GEOMETRY)).
                     getEnvelopeUnion(vg);
         }
-        if (columnId < 0) {
+        if (columnId == SearchRow.ROWID_INDEX) {
             row.setKey(v.getLong());
         } else {
             row.setValue(columnId, v);
@@ -198,14 +206,13 @@ public class IndexCursor implements Cursor {
         return row;
     }
 
-    private SearchRow getSearchRow(SearchRow row, int columnId, Value v,
-            boolean max) {
+    private SearchRow getSearchRow(SearchRow row, int columnId, Value v, boolean max) {
         if (row == null) {
             row = table.getTemplateRow();
         } else {
             v = getMax(row.getValue(columnId), v, max);
         }
-        if (columnId < 0) {
+        if (columnId == SearchRow.ROWID_INDEX) {
             row.setKey(v.getLong());
         } else {
             row.setValue(columnId, v);
@@ -219,28 +226,17 @@ public class IndexCursor implements Cursor {
         } else if (b == null) {
             return a;
         }
-        if (session.getDatabase().getSettings().optimizeIsNull) {
-            // IS NULL must be checked later
-            if (a == ValueNull.INSTANCE) {
-                return b;
-            } else if (b == ValueNull.INSTANCE) {
-                return a;
-            }
+        // IS NULL must be checked later
+        if (a == ValueNull.INSTANCE) {
+            return b;
+        } else if (b == ValueNull.INSTANCE) {
+            return a;
         }
-        int comp = a.compareTo(b, table.getDatabase().getCompareMode());
+        int comp = table.getDatabase().compare(a, b);
         if (comp == 0) {
             return a;
         }
-        if (a == ValueNull.INSTANCE || b == ValueNull.INSTANCE) {
-            if (session.getDatabase().getSettings().optimizeIsNull) {
-                // column IS NULL AND column <op> <not null> is always false
-                return null;
-            }
-        }
-        if (!bigger) {
-            comp = -comp;
-        }
-        return comp > 0 ? a : b;
+        return (comp > 0) == bigger ? a : b;
     }
 
     /**
@@ -250,6 +246,24 @@ public class IndexCursor implements Cursor {
      */
     public boolean isAlwaysFalse() {
         return alwaysFalse;
+    }
+
+    /**
+     * Get start search row.
+     *
+     * @return search row
+     */
+    public SearchRow getStart() {
+        return start;
+    }
+
+    /**
+     * Get end search row.
+     *
+     * @return search row
+     */
+    public SearchRow getEnd() {
+        return end;
     }
 
     @Override
@@ -294,14 +308,8 @@ public class IndexCursor implements Cursor {
             while (inResult.next()) {
                 Value v = inResult.currentRow()[0];
                 if (v != ValueNull.INSTANCE) {
-                    v = inColumn.convert(v);
-                    if (inResultTested == null) {
-                        inResultTested = new HashSet<Value>();
-                    }
-                    if (inResultTested.add(v)) {
-                        find(v);
-                        break;
-                    }
+                    find(v);
+                    break;
                 }
             }
         }
@@ -310,16 +318,13 @@ public class IndexCursor implements Cursor {
     private void find(Value v) {
         v = inColumn.convert(v);
         int id = inColumn.getColumnId();
-        if (start == null) {
-            start = table.getTemplateRow();
-        }
         start.setValue(id, v);
         cursor = index.find(tableFilter, start, start);
     }
 
     @Override
     public boolean previous() {
-        throw DbException.throwInternalError();
+        throw DbException.throwInternalError(toString());
     }
 
 }

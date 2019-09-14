@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.store.fs;
@@ -17,7 +17,6 @@ import java.util.List;
 
 import org.h2.engine.SysProperties;
 import org.h2.message.DbException;
-import org.h2.util.New;
 
 /**
  * A file system that may split files into multiple smaller files.
@@ -95,9 +94,8 @@ public class FilePathSplit extends FilePathWrapper {
     @Override
     public ArrayList<FilePath> newDirectoryStream() {
         List<FilePath> list = getBase().newDirectoryStream();
-        ArrayList<FilePath> newList = New.arrayList();
-        for (int i = 0, size = list.size(); i < size; i++) {
-            FilePath f = list.get(i);
+        ArrayList<FilePath> newList = new ArrayList<>();
+        for (FilePath f : list) {
             if (!f.getName().endsWith(PART_SUFFIX)) {
                 newList.add(wrap(f));
             }
@@ -122,7 +120,7 @@ public class FilePathSplit extends FilePathWrapper {
 
     @Override
     public FileChannel open(String mode) throws IOException {
-        ArrayList<FileChannel> list = New.arrayList();
+        ArrayList<FileChannel> list = new ArrayList<>();
         list.add(getBase().open(mode));
         for (int i = 1;; i++) {
             FilePath f = getBase(i);
@@ -132,8 +130,7 @@ public class FilePathSplit extends FilePathWrapper {
                 break;
             }
         }
-        FileChannel[] array = new FileChannel[list.size()];
-        list.toArray(array);
+        FileChannel[] array = list.toArray(new FileChannel[0]);
         long maxLength = array[0].size();
         long length = maxLength;
         if (array.length == 1) {
@@ -164,7 +161,7 @@ public class FilePathSplit extends FilePathWrapper {
     }
 
     private long getDefaultMaxLength() {
-        return 1L << Integer.decode(parse(name)[0]).intValue();
+        return 1L << Integer.decode(parse(name)[0]);
     }
 
     private void closeAndThrow(int id, FileChannel[] array, FileChannel o,
@@ -189,6 +186,8 @@ public class FilePathSplit extends FilePathWrapper {
             FilePath o = getBase(i);
             if (o.exists()) {
                 o.moveTo(newName.getBase(i), atomicReplace);
+            } else if (newName.getBase(i).exists()) {
+                newName.getBase(i).delete();
             } else {
                 break;
             }
@@ -281,6 +280,23 @@ class FileSplit extends FileBase {
     }
 
     @Override
+    public synchronized int read(ByteBuffer dst, long position)
+            throws IOException {
+        int len = dst.remaining();
+        if (len == 0) {
+            return 0;
+        }
+        len = (int) Math.min(len, length - position);
+        if (len <= 0) {
+            return -1;
+        }
+        long offset = position % maxLength;
+        len = (int) Math.min(len, maxLength - offset);
+        FileChannel channel = getFileChannel(position);
+        return channel.read(dst, offset);
+    }
+
+    @Override
     public int read(ByteBuffer dst) throws IOException {
         int len = dst.remaining();
         if (len == 0) {
@@ -292,7 +308,7 @@ class FileSplit extends FileBase {
         }
         long offset = filePointer % maxLength;
         len = (int) Math.min(len, maxLength - offset);
-        FileChannel channel = getFileChannel();
+        FileChannel channel = getFileChannel(filePointer);
         channel.position(offset);
         len = channel.read(dst);
         filePointer += len;
@@ -305,8 +321,8 @@ class FileSplit extends FileBase {
         return this;
     }
 
-    private FileChannel getFileChannel() throws IOException {
-        int id = (int) (filePointer / maxLength);
+    private FileChannel getFileChannel(long position) throws IOException {
+        int id = (int) (position / maxLength);
         while (id >= list.length) {
             int i = list.length;
             FileChannel[] newList = new FileChannel[i + 1];
@@ -356,6 +372,37 @@ class FileSplit extends FileBase {
     }
 
     @Override
+    public int write(ByteBuffer src, long position) throws IOException {
+        if (position >= length && position > maxLength) {
+            // may need to extend and create files
+            long oldFilePointer = position;
+            long x = length - (length % maxLength) + maxLength;
+            for (; x < position; x += maxLength) {
+                if (x > length) {
+                    // expand the file size
+                    position(x - 1);
+                    write(ByteBuffer.wrap(new byte[1]));
+                }
+                position = oldFilePointer;
+            }
+        }
+        long offset = position % maxLength;
+        int len = src.remaining();
+        FileChannel channel = getFileChannel(position);
+        int l = (int) Math.min(len, maxLength - offset);
+        if (l == len) {
+            l = channel.write(src, offset);
+        } else {
+            int oldLimit = src.limit();
+            src.limit(src.position() + l);
+            l = channel.write(src, offset);
+            src.limit(oldLimit);
+        }
+        length = Math.max(length, position + l);
+        return l;
+    }
+
+    @Override
     public int write(ByteBuffer src) throws IOException {
         if (filePointer >= length && filePointer > maxLength) {
             // may need to extend and create files
@@ -372,7 +419,7 @@ class FileSplit extends FileBase {
         }
         long offset = filePointer % maxLength;
         int len = src.remaining();
-        FileChannel channel = getFileChannel();
+        FileChannel channel = getFileChannel(filePointer);
         channel.position(offset);
         int l = (int) Math.min(len, maxLength - offset);
         if (l == len) {

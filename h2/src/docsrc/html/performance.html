@@ -1,7 +1,7 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <!--
-Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0, Version 1.0,
-and under the Eclipse Public License, Version 1.0
+Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+and the EPL 1.0 (https://h2database.com/html/license.html).
 Initial Developer: H2 Group
 -->
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
@@ -371,6 +371,22 @@ Indexes are also created for foreign key constraints, if required.
 For other columns, indexes need to be created manually using the <code>CREATE INDEX</code> statement.
 </p>
 
+<h3>Index Hints</h3>
+<p>
+If you have determined that H2 is not using the optimal index for your query, you can use index hints to force
+H2 to use specific indexes.
+</p>
+<pre>
+SELECT * FROM TEST USE INDEX (index_name_1, index_name_2) WHERE X=1
+</pre>
+<p>Only indexes in the list will be used when choosing an index to use on the given table. There
+is no significance to order in this list.
+</p><p>
+It is possible that no index in the list is chosen, in which case a full table scan will be used.
+</p>
+<p>An empty list of index names forces a full table scan to be performed.</p>
+<p>Each index in the list must exist.</p>
+
 <h3>How Data is Stored Internally</h3>
 <p>
 For persistent databases, if a table is created with a single column primary key of type <code>BIGINT, INT, SMALLINT, TINYINT</code>,
@@ -474,7 +490,7 @@ Instead, use a prepared statement with arrays as in the following example:
 </p>
 <pre>
 PreparedStatement prep = conn.prepareStatement(
-    "SELECT * FROM TABLE(X INT=?) T INNER JOIN TEST ON T.X=TEST.ID");
+    "SELECT * FROM TEST WHERE ID = ANY(?)");
 prep.setObject(1, new Object[] { "1", "2" });
 ResultSet rs = prep.executeQuery();
 </pre>
@@ -582,7 +598,7 @@ The format used is similar to the profiling data generated when using <code>java
 For this to work, the trace level needs to be 2 or higher (<code>TRACE_LEVEL_FILE=2</code>).
 The easiest way to set the trace level is to append the setting to the database URL, for example:
 <code>jdbc:h2:~/test;TRACE_LEVEL_FILE=2</code> or <code>jdbc:h2:tcp://localhost/~/test;TRACE_LEVEL_FILE=2</code>.
-As an example, execute the the following script using the H2 Console:
+As an example, execute the following script using the H2 Console:
 </p>
 <pre>
 SET TRACE_LEVEL_FILE 2;

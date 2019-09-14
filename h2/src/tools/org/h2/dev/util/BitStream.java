@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.dev.util;
@@ -200,7 +200,7 @@ public class BitStream {
         private final Node tree;
 
         public Huffman(int[] frequencies) {
-            PriorityQueue<Node> queue = new PriorityQueue<Node>();
+            PriorityQueue<Node> queue = new PriorityQueue<>();
             for (int i = 0; i < frequencies.length; i++) {
                 int f = frequencies[i];
                 if (f > 0) {
@@ -243,6 +243,17 @@ public class BitStream {
                 n = in.readBit() == 1 ? n.right : n.left;
             }
             return n.value;
+        }
+
+        /**
+         * Get the number of bits of the Huffman code for this value.
+         *
+         * @param value the value
+         * @return the number of bits
+         */
+        public int getBitCount(int value) {
+            int code = codes[value];
+            return 30 - Integer.numberOfLeadingZeros(code);
         }
 
     }

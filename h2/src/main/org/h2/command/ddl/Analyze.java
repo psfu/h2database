@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.command.ddl;
@@ -15,14 +15,15 @@ import org.h2.expression.Parameter;
 import org.h2.result.ResultInterface;
 import org.h2.table.Column;
 import org.h2.table.Table;
-import org.h2.util.StatementBuilder;
+import org.h2.table.TableType;
+import org.h2.value.DataType;
 import org.h2.value.Value;
 import org.h2.value.ValueInt;
 import org.h2.value.ValueNull;
 
 /**
- * This class represents the statement
- * ANALYZE
+ * This class represents the statements
+ * ANALYZE and ANALYZE TABLE
  */
 public class Analyze extends DefineCommand {
 
@@ -30,10 +31,18 @@ public class Analyze extends DefineCommand {
      * The sample size.
      */
     private int sampleRows;
+    /**
+     * used in ANALYZE TABLE...
+     */
+    private Table table;
 
     public Analyze(Session session) {
         super(session);
         sampleRows = session.getDatabase().getSettings().analyzeSample;
+    }
+
+    public void setTable(Table table) {
+        this.table = table;
     }
 
     @Override
@@ -41,8 +50,12 @@ public class Analyze extends DefineCommand {
         session.commit(true);
         session.getUser().checkAdmin();
         Database db = session.getDatabase();
-        for (Table table : db.getAllTablesAndViews(false)) {
+        if (table != null) {
             analyzeTable(session, table, sampleRows, true);
+        } else {
+            for (Table table : db.getAllTablesAndViews(false)) {
+                analyzeTable(session, table, sampleRows, true);
+            }
         }
         return 0;
     }
@@ -56,8 +69,8 @@ public class Analyze extends DefineCommand {
      * @param manual whether the command was called by the user
      */
     public static void analyzeTable(Session session, Table table, int sample,
-            boolean manual) {
-        if (!(table.getTableType().equals(Table.TABLE)) ||
+                                    boolean manual) {
+        if (table.getTableType() != TableType.TABLE ||
                 table.isHidden() || session == null) {
             return;
         }
@@ -88,28 +101,31 @@ public class Analyze extends DefineCommand {
             return;
         }
         Database db = session.getDatabase();
-        StatementBuilder buff = new StatementBuilder("SELECT ");
-        for (Column col : columns) {
-            buff.appendExceptFirst(", ");
-            int type = col.getType();
-            if (type == Value.BLOB || type == Value.CLOB) {
+        StringBuilder buff = new StringBuilder("SELECT ");
+        for (int i = 0, l = columns.length; i < l; i++) {
+            if (i > 0) {
+                buff.append(", ");
+            }
+            Column col = columns[i];
+            if (DataType.isLargeObject(col.getType().getValueType())) {
                 // can not index LOB columns, so calculating
                 // the selectivity is not required
                 buff.append("MAX(NULL)");
             } else {
-                buff.append("SELECTIVITY(").append(col.getSQL()).append(')');
+                buff.append("SELECTIVITY(");
+                col.getSQL(buff, true).append(')');
             }
         }
-        buff.append(" FROM ").append(table.getSQL());
+        buff.append(" FROM ");
+        table.getSQL(buff, true);
         if (sample > 0) {
-            buff.append(" LIMIT ? SAMPLE_SIZE ? ");
+            buff.append(" FETCH FIRST ROW ONLY SAMPLE_SIZE ? ");
         }
         String sql = buff.toString();
         Prepared command = session.prepare(sql);
         if (sample > 0) {
             ArrayList<Parameter> params = command.getParameters();
-            params.get(0).setValue(ValueInt.get(1));
-            params.get(1).setValue(ValueInt.get(sample));
+            params.get(0).setValue(ValueInt.get(sample));
         }
         ResultInterface result = command.query(0);
         result.next();
@@ -120,23 +136,7 @@ public class Analyze extends DefineCommand {
                 columns[j].setSelectivity(selectivity);
             }
         }
-        if (manual) {
-            db.updateMeta(session, table);
-        } else {
-            Session sysSession = db.getSystemSession();
-            if (sysSession != session) {
-                // if the current session is the system session
-                // (which is the case if we are within a trigger)
-                // then we can't update the statistics because
-                // that would unlock all locked objects
-                synchronized (sysSession) {
-                    synchronized (db) {
-                        db.updateMeta(sysSession, table);
-                        sysSession.commit(true);
-                    }
-                }
-            }
-        }
+        db.updateMeta(session, table);
     }
 
     public void setTop(int top) {

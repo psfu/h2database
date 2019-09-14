@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.db;
@@ -10,14 +10,14 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-
 import org.h2.api.ErrorCode;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 
 /**
  * Test ALTER statements.
  */
-public class TestAlter extends TestBase {
+public class TestAlter extends TestDb {
 
     private Connection conn;
     private Statement stat;
@@ -36,31 +36,19 @@ public class TestAlter extends TestBase {
         deleteDb(getTestName());
         conn = getConnection(getTestName());
         stat = conn.createStatement();
-        testAlterTableAlterColumnAsSelfColumn();
+        testAlterTableRenameConstraint();
         testAlterTableDropColumnWithReferences();
-        testAlterTableAlterColumnWithConstraint();
-        testAlterTableAlterColumn();
+        testAlterTableDropMultipleColumns();
         testAlterTableAddColumnIdentity();
         testAlterTableDropIdentityColumn();
         testAlterTableAddColumnIfNotExists();
         testAlterTableAddMultipleColumns();
-        testAlterTableAlterColumn2();
         testAlterTableAddColumnBefore();
         testAlterTableAddColumnAfter();
-        testAlterTableModifyColumn();
+        testAlterTableAddMultipleColumnsBefore();
+        testAlterTableAddMultipleColumnsAfter();
         conn.close();
         deleteDb(getTestName());
-    }
-
-    private void testAlterTableAlterColumnAsSelfColumn() throws SQLException {
-        stat.execute("create table test(id int, name varchar)");
-        stat.execute("alter table test alter column id int as id+1");
-        stat.execute("insert into test values(1, 'Hello')");
-        stat.execute("update test set name='World'");
-        ResultSet rs = stat.executeQuery("select * from test");
-        rs.next();
-        assertEquals(3, rs.getInt(1));
-        stat.execute("drop table test");
     }
 
     private void testAlterTableDropColumnWithReferences() throws SQLException {
@@ -108,24 +96,29 @@ public class TestAlter extends TestBase {
 
     }
 
-    /**
-     * Tests a bug we used to have where altering the name of a column that had
-     * a check constraint that referenced itself would result in not being able
-     * to re-open the DB.
-     */
-    private void testAlterTableAlterColumnWithConstraint() throws SQLException {
-        if (config.memory) {
-            return;
-        }
-        stat.execute("create table test(id int check(id in (1,2)) )");
-        stat.execute("alter table test alter id rename to id2");
-        // disconnect and reconnect
-        conn.close();
-        conn = getConnection(getTestName());
-        stat = conn.createStatement();
-        stat.execute("insert into test values(1)");
-        assertThrows(ErrorCode.CHECK_CONSTRAINT_VIOLATED_1, stat).
-            execute("insert into test values(3)");
+    private void testAlterTableDropMultipleColumns() throws SQLException {
+        stat.execute("create table test(id int, b varchar, c int, d int)");
+        stat.execute("alter table test drop column b, c");
+        stat.execute("alter table test drop d");
+        stat.execute("drop table test");
+        // Test-Case: Same as above but using brackets (Oracle style)
+        stat.execute("create table test(id int, b varchar, c int, d int)");
+        stat.execute("alter table test drop column (b, c)");
+        assertThrows(ErrorCode.COLUMN_NOT_FOUND_1, stat).
+            execute("alter table test drop column b");
+        stat.execute("alter table test drop (d)");
+        stat.execute("drop table test");
+        // Test-Case: Error if dropping all columns
+        stat.execute("create table test(id int, name varchar, name2 varchar)");
+        assertThrows(ErrorCode.CANNOT_DROP_LAST_COLUMN, stat).
+            execute("alter table test drop column id, name, name2");
+        stat.execute("drop table test");
+    }
+
+    private void testAlterTableRenameConstraint() throws SQLException {
+        stat.execute("create table test(id int, name varchar(255))");
+        stat.execute("alter table test add constraint x check (id > name)");
+        stat.execute("alter table test rename constraint x to x2");
         stat.execute("drop table test");
     }
 
@@ -141,17 +134,6 @@ public class TestAlter extends TestBase {
         rs = stat.executeQuery("select * from INFORMATION_SCHEMA.SEQUENCES");
         assertTrue(rs.next());
         stat.execute("drop table test");
-    }
-
-    private void testAlterTableAlterColumn() throws SQLException {
-        stat.execute("create table t(x varchar) as select 'x'");
-        assertThrows(ErrorCode.DATA_CONVERSION_ERROR_1, stat).
-                execute("alter table t alter column x int");
-        stat.execute("drop table t");
-        stat.execute("create table t(id identity, x varchar) as select null, 'x'");
-        assertThrows(ErrorCode.DATA_CONVERSION_ERROR_1, stat).
-                execute("alter table t alter column x int");
-        stat.execute("drop table t");
     }
 
     private void testAlterTableAddColumnIdentity() throws SQLException {
@@ -187,6 +169,40 @@ public class TestAlter extends TestBase {
         stat.execute("drop table t");
     }
 
+
+
+    // column and field names must be upper-case due to getMetaData sensitivity
+    private void testAlterTableAddMultipleColumnsBefore() throws SQLException {
+        stat.execute("create table T(X varchar)");
+        stat.execute("alter table T add (Y int, Z int) before X");
+        DatabaseMetaData dbMeta = conn.getMetaData();
+        ResultSet rs = dbMeta.getColumns(null, null, "T", null);
+        assertTrue(rs.next());
+        assertEquals("Y", rs.getString("COLUMN_NAME"));
+        assertTrue(rs.next());
+        assertEquals("Z", rs.getString("COLUMN_NAME"));
+        assertTrue(rs.next());
+        assertEquals("X", rs.getString("COLUMN_NAME"));
+        assertFalse(rs.next());
+        stat.execute("drop table T");
+    }
+
+    // column and field names must be upper-case due to getMetaData sensitivity
+    private void testAlterTableAddMultipleColumnsAfter() throws SQLException {
+        stat.execute("create table T(X varchar)");
+        stat.execute("alter table T add (Y int, Z int) after X");
+        DatabaseMetaData dbMeta = conn.getMetaData();
+        ResultSet rs = dbMeta.getColumns(null, null, "T", null);
+        assertTrue(rs.next());
+        assertEquals("X", rs.getString("COLUMN_NAME"));
+        assertTrue(rs.next());
+        assertEquals("Y", rs.getString("COLUMN_NAME"));
+        assertTrue(rs.next());
+        assertEquals("Z", rs.getString("COLUMN_NAME"));
+        assertFalse(rs.next());
+        stat.execute("drop table T");
+    }
+
     // column and field names must be upper-case due to getMetaData sensitivity
     private void testAlterTableAddColumnBefore() throws SQLException {
         stat.execute("create table T(X varchar)");
@@ -215,19 +231,4 @@ public class TestAlter extends TestBase {
         stat.execute("drop table T");
     }
 
-    private void testAlterTableAlterColumn2() throws SQLException {
-        // ensure that increasing a VARCHAR columns length takes effect because
-        // we optimize this case
-        stat.execute("create table t(x varchar(2)) as select 'x'");
-        stat.execute("alter table t alter column x varchar(20)");
-        stat.execute("insert into t values('Hello')");
-        stat.execute("drop table t");
-    }
-
-    private void testAlterTableModifyColumn() throws SQLException {
-        stat.execute("create table t(x int)");
-        stat.execute("alter table t modify column x varchar(20)");
-        stat.execute("insert into t values('Hello')");
-        stat.execute("drop table t");
-    }
 }

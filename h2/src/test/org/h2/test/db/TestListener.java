@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.db;
@@ -10,22 +10,23 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.concurrent.TimeUnit;
 
 import org.h2.api.DatabaseEventListener;
 import org.h2.test.TestBase;
-import org.h2.util.JdbcUtils;
+import org.h2.test.TestDb;
 
 /**
  * Tests the DatabaseEventListener.
  */
-public class TestListener extends TestBase implements DatabaseEventListener {
+public class TestListener extends TestDb implements DatabaseEventListener {
 
     private long last;
     private int lastState = -1;
     private String databaseUrl;
 
     public TestListener() {
-        start = last = System.currentTimeMillis();
+        start = last = System.nanoTime();
     }
 
     /**
@@ -38,10 +39,15 @@ public class TestListener extends TestBase implements DatabaseEventListener {
     }
 
     @Override
-    public void test() throws SQLException {
+    public boolean isEnabled() {
         if (config.networked || config.cipher != null) {
-            return;
+            return false;
         }
+        return true;
+    }
+
+    @Override
+    public void test() throws SQLException {
         deleteDb("listener");
         Connection conn;
         conn = getConnection("listener");
@@ -69,8 +75,8 @@ public class TestListener extends TestBase implements DatabaseEventListener {
 
     @Override
     public void setProgress(int state, String name, int current, int max) {
-        long time = System.currentTimeMillis();
-        if (state == lastState && time < last + 1000) {
+        long time = System.nanoTime();
+        if (state == lastState && time < last + TimeUnit.SECONDS.toNanos(1)) {
             return;
         }
         if (state == STATE_STATEMENT_START ||
@@ -104,7 +110,7 @@ public class TestListener extends TestBase implements DatabaseEventListener {
             // ignore
         }
         printTime("state: " + stateName + " " +
-                (100 * current / max) + " " + (time - start));
+                (100 * current / max) + " " + TimeUnit.NANOSECONDS.toMillis(time - start));
     }
 
     @Override
@@ -112,15 +118,13 @@ public class TestListener extends TestBase implements DatabaseEventListener {
         if (databaseUrl.toUpperCase().contains("CIPHER")) {
             return;
         }
-        Connection conn = null;
-        try {
-            conn = DriverManager.getConnection(databaseUrl, getUser(), getPassword());
+
+        try (Connection conn = DriverManager.getConnection(databaseUrl,
+                getUser(), getPassword())) {
             conn.createStatement().execute("DROP TABLE TEST2");
             conn.close();
         } catch (SQLException e) {
             e.printStackTrace();
-        } finally {
-            JdbcUtils.closeSilently(conn);
         }
     }
 
@@ -134,15 +138,13 @@ public class TestListener extends TestBase implements DatabaseEventListener {
         if (databaseUrl.toUpperCase().contains("CIPHER")) {
             return;
         }
-        Connection conn = null;
-        try {
-            conn = DriverManager.getConnection(databaseUrl, getUser(), getPassword());
+
+        try (Connection conn = DriverManager.getConnection(databaseUrl,
+                getUser(), getPassword())) {
             conn.createStatement().execute("CREATE TABLE IF NOT EXISTS TEST2(ID INT)");
             conn.close();
         } catch (SQLException e) {
             e.printStackTrace();
-        } finally {
-            JdbcUtils.closeSilently(conn);
         }
     }
 

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.message;
@@ -13,7 +13,7 @@ import java.text.SimpleDateFormat;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import org.h2.api.ErrorCode;
 import org.h2.engine.Constants;
-import org.h2.jdbc.JdbcSQLException;
+import org.h2.jdbc.JdbcException;
 import org.h2.store.fs.FileUtils;
 import org.h2.util.IOUtils;
 
@@ -82,11 +82,16 @@ public class TraceSystem implements TraceWriter {
     private int maxFileSize = DEFAULT_MAX_FILE_SIZE;
     private String fileName;
     private final AtomicReferenceArray<Trace> traces =
-            new AtomicReferenceArray<Trace>(Trace.MODULE_NAMES.length);
+            new AtomicReferenceArray<>(Trace.MODULE_NAMES.length);
     private SimpleDateFormat dateFormat;
     private Writer fileWriter;
     private PrintWriter printWriter;
-    private int checkSize;
+    /**
+     * Starts at -1 so that we check the file size immediately upon open. This
+     * Can be important if we open and close the trace file without managing to
+     * have written CHECK_SIZE_EACH_WRITES bytes each time.
+     */
+    private int checkSize = -1;
     private boolean closed;
     private boolean writingErrorLogged;
     private TraceWriter writer = this;
@@ -146,6 +151,9 @@ public class TraceSystem implements TraceWriter {
 
     @Override
     public boolean isEnabled(int level) {
+        if (levelMax == ADAPTER) {
+            return writer.isEnabled(level);
+        }
         return level <= this.levelMax;
     }
 
@@ -186,7 +194,7 @@ public class TraceSystem implements TraceWriter {
         if (level == ADAPTER) {
             String adapterClass = "org.h2.message.TraceWriterAdapter";
             try {
-                writer = (TraceWriter) Class.forName(adapterClass).newInstance();
+                writer = (TraceWriter) Class.forName(adapterClass).getDeclaredConstructor().newInstance();
             } catch (Throwable e) {
                 e = DbException.get(ErrorCode.CLASS_NOT_FOUND_1, e, adapterClass);
                 write(ERROR, Trace.DATABASE, adapterClass, e);
@@ -243,8 +251,8 @@ public class TraceSystem implements TraceWriter {
 
     private synchronized void writeFile(String s, Throwable t) {
         try {
-            if (checkSize++ >= CHECK_SIZE_EACH_WRITES) {
-                checkSize = 0;
+            checkSize = (checkSize + 1) % CHECK_SIZE_EACH_WRITES;
+            if (checkSize == 0) {
                 closeWriter();
                 if (maxFileSize > 0 && FileUtils.size(fileName) > maxFileSize) {
                     String old = fileName + ".old";
@@ -257,8 +265,8 @@ public class TraceSystem implements TraceWriter {
             }
             printWriter.println(s);
             if (t != null) {
-                if (levelFile == ERROR && t instanceof JdbcSQLException) {
-                    JdbcSQLException se = (JdbcSQLException) t;
+                if (levelFile == ERROR && t instanceof JdbcException) {
+                    JdbcException se = (JdbcException) t;
                     int code = se.getErrorCode();
                     if (ErrorCode.isCommon(code)) {
                         printWriter.println(t.toString());

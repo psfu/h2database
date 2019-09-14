@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.build.doc;
@@ -11,6 +11,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.StringTokenizer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.h2.build.BuildBase;
 import org.h2.util.StringUtils;
@@ -25,11 +27,11 @@ import org.h2.util.Utils;
 public class SpellChecker {
 
     private static final String[] SUFFIX = { "html", "java", "sql", "txt",
-            "xml", "jsp", "css", "bat", "csv", "xml", "js", "Driver",
+            "xml", "jsp", "css", "bat", "csv", "xml", "js", "Driver", "Processor",
             "properties", "task", "MF", "mf", "sh", "" };
     private static final String[] IGNORE = { "dev", "nsi", "gif", "png", "odg",
             "ico", "sxd", "zip", "bz2", "rc", "layout", "res", "dll", "jar",
-            "svg", "prefs", "prop", "iml" };
+            "svg", "prefs", "prop", "iml", "class" };
     private static final String DELIMITERS =
             " \n.();-\"=,*/{}_<>+\r:'@[]&\\!#|?$^%~`\t";
     private static final String PREFIX_IGNORE = "abc";
@@ -49,11 +51,11 @@ public class SpellChecker {
     public boolean printDictionary;
 
     private final HashSet<String> dictionary =
-            new HashSet<String>();
+            new HashSet<>();
     private final HashSet<String> used =
-            new HashSet<String>();
+            new HashSet<>();
     private final HashMap<String, Integer> unknown =
-            new HashMap<String, Integer>();
+            new HashMap<>();
     private boolean addToDictionary;
     private int errorCount;
     private int contextCount;
@@ -72,10 +74,14 @@ public class SpellChecker {
     private void run(String dictionaryFileName, String dir) throws IOException {
         process(new File(dictionaryFileName));
         process(new File(dir));
+        HashSet<String> unused = new HashSet<>();
+        unused.addAll(dictionary);
+        unused.removeAll(used);
+        // System.out.println("UNUSED WORDS");
+        // System.out.println(unused);
         if (printDictionary) {
             System.out.println("USED WORDS");
-            String[] list = new String[used.size()];
-            used.toArray(list);
+            String[] list = used.toArray(new String[used.size()]);
             Arrays.sort(list);
             StringBuilder buff = new StringBuilder();
             for (String s : list) {
@@ -160,7 +166,7 @@ public class SpellChecker {
     }
 
     private void scan(String fileName, String text) {
-        HashSet<String> notFound = new HashSet<String>();
+        HashSet<String> notFound = new HashSet<>();
         text = removeLinks(fileName, text);
         StringTokenizer tokenizer = new StringTokenizer(text, DELIMITERS);
         while (tokenizer.hasMoreTokens()) {
@@ -190,19 +196,20 @@ public class SpellChecker {
     }
 
     private String removeLinks(String fileName, String text) {
+        Pattern linkPattern = Pattern.compile("http[s]?://");
         StringBuilder buff = new StringBuilder(text.length());
         int pos = 0, last = 0;
         if (fileName.endsWith(".properties")) {
             text = StringUtils.replaceAll(text, "\\:", ":");
         }
         while (true) {
-            pos = text.indexOf("http://", pos);
-            if (pos < 0) {
+            Matcher m = linkPattern.matcher(text.substring(pos));
+            if (!m.find()) {
                 break;
             }
-            int start = pos;
+            int start = m.start() + pos;
+            pos = m.end() + pos;
             buff.append(text.substring(last, start));
-            pos += "http://".length();
             while (true) {
                 char c = text.charAt(pos);
                 if (!Character.isJavaIdentifierPart(c) &&

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.build.code;
@@ -17,20 +17,20 @@ import java.util.Arrays;
  */
 public class CheckTextFiles {
 
-    private static final int MAX_SOURCE_LINE_SIZE = 100;
+    private static final int MAX_SOURCE_LINE_SIZE = 120;
 
     // must contain "+" otherwise this here counts as well
-    private static final String COPYRIGHT = "Copyright 2004-2014 " +
-            "H2 Group.";
+    private static final String COPYRIGHT1 = "Copyright 2004-201";
+    private static final String COPYRIGHT2 = "H2 Group.";
     private static final String LICENSE = "Multiple-Licensed " +
             "under the MPL 2.0";
 
     private static final String[] SUFFIX_CHECK = { "html", "jsp", "js", "css",
             "bat", "nsi", "java", "txt", "properties", "sql", "xml", "csv",
-            "Driver", "prefs" };
+            "Driver", "Processor", "prefs" };
     private static final String[] SUFFIX_IGNORE = { "gif", "png", "odg", "ico",
             "sxd", "layout", "res", "win", "jar", "task", "svg", "MF", "mf",
-            "sh", "DS_Store", "prop" };
+            "sh", "DS_Store", "prop", "class" };
     private static final String[] SUFFIX_CRLF = { "bat" };
 
     private static final boolean ALLOW_TAB = false;
@@ -85,18 +85,6 @@ public class CheckTextFiles {
                     check = true;
                 }
             }
-//            if (name.endsWith(".html") && name.indexOf("_ja") > 0) {
-//                int todoRemoveJapaneseFiles;
-//                // Japanese html files are UTF-8 at this time
-//                check = false;
-//                ignore = true;
-//            }
-            if (name.endsWith(".utf8.txt") ||
-                    (name.startsWith("_docs_") &&
-                    name.endsWith(".properties"))) {
-                check = false;
-                ignore = true;
-            }
             for (String s : SUFFIX_IGNORE) {
                 if (suffix.equals(s)) {
                     ignore = true;
@@ -144,10 +132,13 @@ public class CheckTextFiles {
         in.readFully(data);
         in.close();
         if (checkLicense) {
-            if (data.length > COPYRIGHT.length() + LICENSE.length()) {
+            if (data.length > COPYRIGHT1.length() + LICENSE.length()) {
                 // don't check tiny files
                 String text = new String(data);
-                if (text.indexOf(COPYRIGHT) < 0) {
+                if (text.indexOf(COPYRIGHT1) < 0) {
+                    fail(file, "copyright is missing", 0);
+                }
+                if (text.indexOf(COPYRIGHT2) < 0) {
                     fail(file, "copyright is missing", 0);
                 }
                 if (text.indexOf(LICENSE) < 0) {
@@ -190,6 +181,9 @@ public class CheckTextFiles {
                     line++;
                     int lineLength = i - startLinePos;
                     if (file.getName().endsWith(".java")) {
+                        if (i > 0 && data[i - 1] == '\r') {
+                            lineLength--;
+                        }
                         if (lineLength > MAX_SOURCE_LINE_SIZE) {
                             fail(file, "line too long: " + lineLength, line);
                         }

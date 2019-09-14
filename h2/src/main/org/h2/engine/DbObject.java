@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.engine;
@@ -75,9 +75,9 @@ public interface DbObject {
     int CONSTANT = 11;
 
     /**
-     * This object is a user data type (domain).
+     * This object is a domain.
      */
-    int USER_DATATYPE = 12;
+    int DOMAIN = 12;
 
     /**
      * This object is a comment.
@@ -90,11 +90,28 @@ public interface DbObject {
     int AGGREGATE = 14;
 
     /**
+     * This object is a synonym.
+     */
+    int SYNONYM = 15;
+
+    /**
      * Get the SQL name of this object (may be quoted).
      *
+     * @param alwaysQuote quote all identifiers
      * @return the SQL name
      */
-    String getSQL();
+    String getSQL(boolean alwaysQuote);
+
+    /**
+     * Appends the SQL name of this object (may be quoted) to the specified
+     * builder.
+     *
+     * @param builder
+     *            string builder
+     * @param alwaysQuote quote all identifiers
+     * @return the specified string builder
+     */
+    StringBuilder getSQL(StringBuilder builder, boolean alwaysQuote);
 
     /**
      * Get the list of dependent children (for tables, this includes indexes and

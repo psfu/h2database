@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.db;
@@ -15,11 +15,12 @@ import java.sql.Statement;
 import org.h2.api.ErrorCode;
 import org.h2.store.fs.FileUtils;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 
 /**
  * Access rights tests.
  */
-public class TestRights extends TestBase {
+public class TestRights extends TestDb {
 
     private Statement stat;
 
@@ -48,6 +49,9 @@ public class TestRights extends TestBase {
         testSchemaRenameUser();
         testAccessRights();
         testSchemaAdminRole();
+        testTableRename();
+        testSchemaRename();
+        testSchemaDrop();
         deleteDb("rights");
     }
 
@@ -64,43 +68,43 @@ public class TestRights extends TestBase {
 
     private void testLinkedTableMeta() throws SQLException {
         deleteDb("rights");
-        Connection conn = getConnection("rights");
-        stat = conn.createStatement();
-        stat.execute("create user test password 'test'");
-        stat.execute("create linked table test" +
-                "(null, 'jdbc:h2:mem:', 'sa', 'sa', 'DUAL')");
-        // password is invisible to non-admin
-        Connection conn2 = getConnection(
-                "rights", "test", getPassword("test"));
-        Statement stat2 = conn2.createStatement();
-        ResultSet rs = stat2.executeQuery(
-                "select * from information_schema.tables " +
-                "where table_name = 'TEST'");
-        assertTrue(rs.next());
-        ResultSetMetaData meta = rs.getMetaData();
-        for (int i = 1; i <= meta.getColumnCount(); i++) {
-            String s = rs.getString(i);
-            assertFalse(s != null && s.contains("'sa'"));
-        }
-        conn2.close();
-        // password is visible to admin
-        rs = stat.executeQuery(
-                "select * from information_schema.tables " +
-                "where table_name = 'TEST'");
-        assertTrue(rs.next());
-        meta = rs.getMetaData();
-        boolean foundPassword = false;
-        for (int i = 1; i <= meta.getColumnCount(); i++) {
-            String s = rs.getString(i);
-            if (s != null && s.contains("'sa'")) {
-                foundPassword = true;
+        try (Connection conn = getConnection("rights")) {
+            stat = conn.createStatement();
+            stat.execute("create user test password 'test'");
+            stat.execute("create linked table test" +
+                    "(null, 'jdbc:h2:mem:', 'sa', 'sa', 'DUAL')");
+            // password is invisible to non-admin
+            Connection conn2 = getConnection(
+                    "rights", "test", getPassword("test"));
+            Statement stat2 = conn2.createStatement();
+            ResultSet rs = stat2.executeQuery(
+                    "select * from information_schema.tables " +
+                    "where table_name = 'TEST'");
+            assertTrue(rs.next());
+            ResultSetMetaData meta = rs.getMetaData();
+            for (int i = 1; i <= meta.getColumnCount(); i++) {
+                String s = rs.getString(i);
+                assertFalse(s != null && s.contains("'sa'"));
             }
-        }
-        assertTrue(foundPassword);
-        conn2.close();
+            conn2.close();
+            // password is visible to admin
+            rs = stat.executeQuery(
+                    "select * from information_schema.tables " +
+                    "where table_name = 'TEST'");
+            assertTrue(rs.next());
+            meta = rs.getMetaData();
+            boolean foundPassword = false;
+            for (int i = 1; i <= meta.getColumnCount(); i++) {
+                String s = rs.getString(i);
+                if (s != null && s.contains("'sa'")) {
+                    foundPassword = true;
+                }
+            }
+            assertTrue(foundPassword);
+            conn2.close();
 
-        stat.execute("drop table test");
-        conn.close();
+            stat.execute("drop table test");
+        }
     }
 
     private void testGrantMore() throws SQLException {
@@ -388,7 +392,7 @@ public class TestRights extends TestBase {
                 execute("alter user test1 admin false");
         assertThrows(ErrorCode.CANNOT_DROP_2, stat).
                 execute("drop user test1");
-        stat.execute("drop schema b");
+        stat.execute("drop schema b cascade");
         stat.execute("alter user test1 admin false");
         stat.execute("drop user test1");
         conn.close();
@@ -451,7 +455,7 @@ public class TestRights extends TestBase {
         executeSuccess("INSERT INTO  S.TEST (ID, NAME) VALUES (42, 'Adams')");
         executeSuccess("UPDATE S.TEST Set NAME = 'Douglas'");
         executeSuccess("DELETE FROM S.TEST");
-        executeSuccess("DROP SCHEMA S");
+        executeSuccess("DROP SCHEMA S CASCADE");
 
         // ...and on other schemata
         executeSuccess("CREATE TABLE TEST(ID INT PRIMARY KEY, NAME VARCHAR)");
@@ -488,6 +492,61 @@ public class TestRights extends TestBase {
         execute("UPDATE SCHEMA_RIGHT_TEST_EXISTS.TEST_EXISTS Set NAME = 'Douglas'");
         assertThrows(ErrorCode.NOT_ENOUGH_RIGHTS_FOR_1, stat).
         execute("DELETE FROM SCHEMA_RIGHT_TEST_EXISTS.TEST_EXISTS");
+        conn.close();
+    }
+
+    private void testTableRename() throws SQLException {
+        if (config.memory) {
+            return;
+        }
+        deleteDb("rights");
+        Connection conn = getConnection("rights");
+        stat = conn.createStatement();
+        stat.execute("create user test password '' admin");
+        stat.execute("create schema b");
+        stat.execute("create table b.t1(id int)");
+        stat.execute("grant select on b.t1 to test");
+        stat.execute("alter table b.t1 rename to b.t2");
+        conn.close();
+        conn = getConnection("rights");
+        stat = conn.createStatement();
+        stat.execute("drop user test");
+        conn.close();
+    }
+
+    private void testSchemaRename() throws SQLException {
+        if (config.memory) {
+            return;
+        }
+        deleteDb("rights");
+        Connection conn = getConnection("rights");
+        stat = conn.createStatement();
+        stat.execute("create user test password '' admin");
+        stat.execute("create schema b");
+        stat.execute("grant select on schema b to test");
+        stat.execute("alter schema b rename to c");
+        conn.close();
+        conn = getConnection("rights");
+        stat = conn.createStatement();
+        stat.execute("drop user test");
+        conn.close();
+    }
+
+    private void testSchemaDrop() throws SQLException {
+        if (config.memory) {
+            return;
+        }
+        deleteDb("rights");
+        Connection conn = getConnection("rights");
+        stat = conn.createStatement();
+        stat.execute("create user test password '' admin");
+        stat.execute("create schema b");
+        stat.execute("grant select on schema b to test");
+        stat.execute("drop schema b cascade");
+        conn.close();
+        conn = getConnection("rights");
+        stat = conn.createStatement();
+        stat.execute("drop user test");
         conn.close();
     }
 

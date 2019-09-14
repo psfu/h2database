@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.build.doc;
@@ -82,7 +82,7 @@ public class XMLChecker {
         // use this for html file, for example if <li> is not closed
         String[] noClose = {};
         XMLParser parser = new XMLParser(xml);
-        Stack<Object[]> stack = new Stack<Object[]>();
+        Stack<Object[]> stack = new Stack<>();
         boolean rootElement = false;
         while (true) {
             int event = parser.next();

@@ -1,17 +1,19 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.result;
 
+import org.h2.engine.SessionInterface;
+import org.h2.value.TypeInfo;
 import org.h2.value.Value;
 
 /**
  * The result interface is used by the LocalResult and ResultRemote class.
  * A result may contain rows, or just an update count.
  */
-public interface ResultInterface {
+public interface ResultInterface extends AutoCloseable {
 
     /**
      * Go to the beginning of the result, that means
@@ -42,6 +44,13 @@ public interface ResultInterface {
     int getRowId();
 
     /**
+     * Check if the current position is after last row.
+     *
+     * @return true if after last
+     */
+    boolean isAfterLast();
+
+    /**
      * Get the number of visible columns.
      * More columns may exist internally for sorting or grouping.
      *
@@ -57,6 +66,13 @@ public interface ResultInterface {
     int getRowCount();
 
     /**
+     * Check if this result has more rows to fetch.
+     *
+     * @return true if it has
+     */
+    boolean hasNext();
+
+    /**
      * Check if this result set should be closed, for example because it is
      * buffered using a temporary file.
      *
@@ -67,6 +83,7 @@ public interface ResultInterface {
     /**
      * Close the result and delete any temporary files
      */
+    @Override
     void close();
 
     /**
@@ -107,31 +124,7 @@ public interface ResultInterface {
      * @param i the column number (starting with 0)
      * @return the column data type
      */
-    int getColumnType(int i);
-
-    /**
-     * Get the precision for this column.
-     *
-     * @param i the column number (starting with 0)
-     * @return the precision
-     */
-    long getColumnPrecision(int i);
-
-    /**
-     * Get the scale for this column.
-     *
-     * @param i the column number (starting with 0)
-     * @return the scale
-     */
-    int getColumnScale(int i);
-
-    /**
-     * Get the display size for this column.
-     *
-     * @param i the column number (starting with 0)
-     * @return the display size
-     */
-    int getDisplaySize(int i);
+    TypeInfo getColumnType(int i);
 
     /**
      * Check if this is an auto-increment column.
@@ -162,5 +155,28 @@ public interface ResultInterface {
      * @return the fetch size
      */
     int getFetchSize();
+
+    /**
+     * Check if this a lazy execution result.
+     *
+     * @return true if it is a lazy result
+     */
+    boolean isLazy();
+
+    /**
+     * Check if this result set is closed.
+     *
+     * @return true if it is
+     */
+    boolean isClosed();
+
+    /**
+     * Create a shallow copy of the result set. The data and a temporary table
+     * (if there is any) is not copied.
+     *
+     * @param targetSession the session of the copy
+     * @return the copy if possible, or null if copying is not possible
+     */
+    ResultInterface createShallowCopy(SessionInterface targetSession);
 
 }

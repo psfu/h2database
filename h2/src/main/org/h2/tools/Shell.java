@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.tools;
@@ -19,10 +19,12 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
+
+import org.h2.api.ErrorCode;
 import org.h2.engine.Constants;
 import org.h2.server.web.ConnectionInfo;
 import org.h2.util.JdbcUtils;
-import org.h2.util.New;
 import org.h2.util.ScriptReader;
 import org.h2.util.SortedProperties;
 import org.h2.util.StringUtils;
@@ -47,7 +49,7 @@ public class Shell extends Tool implements Runnable {
     private Statement stat;
     private boolean listMode;
     private int maxColumnSize = 100;
-    private final ArrayList<String> history = New.arrayList();
+    private final ArrayList<String> history = new ArrayList<>();
     private boolean stopHide;
     private String serverPropertiesDir = Constants.SERVER_PROPERTIES_DIR;
 
@@ -194,7 +196,7 @@ public class Shell extends Tool implements Runnable {
 
     private void promptLoop() {
         println("");
-        println("Welcome to H2 Shell " + Constants.getFullVersion());
+        println("Welcome to H2 Shell " + Constants.FULL_VERSION);
         println("Exit with Ctrl+C");
         if (conn != null) {
             showHelp();
@@ -219,7 +221,7 @@ public class Shell extends Tool implements Runnable {
                     break;
                 }
                 String trimmed = line.trim();
-                if (trimmed.length() == 0) {
+                if (trimmed.isEmpty()) {
                     continue;
                 }
                 boolean end = trimmed.endsWith(";");
@@ -241,13 +243,13 @@ public class Shell extends Tool implements Runnable {
                         s = s.replace('\n', ' ').replace('\r', ' ');
                         println("#" + (1 + i) + ": " + s);
                     }
-                    if (history.size() > 0) {
+                    if (!history.isEmpty()) {
                         println("To re-run a statement, type the number and press and enter");
                     } else {
                         println("No history");
                     }
                 } else if (lower.startsWith("autocommit")) {
-                    lower = lower.substring("autocommit".length()).trim();
+                    lower = StringUtils.trimSubstring(lower, "autocommit".length());
                     if ("true".equals(lower)) {
                         conn.setAutoCommit(true);
                     } else if ("false".equals(lower)) {
@@ -257,7 +259,7 @@ public class Shell extends Tool implements Runnable {
                     }
                     println("Autocommit is now " + conn.getAutoCommit());
                 } else if (lower.startsWith("maxwidth")) {
-                    lower = lower.substring("maxwidth".length()).trim();
+                    lower = StringUtils.trimSubstring(lower, "maxwidth".length());
                     try {
                         maxColumnSize = Integer.parseInt(lower);
                     } catch (NumberFormatException e) {
@@ -332,7 +334,7 @@ public class Shell extends Tool implements Runnable {
             String data = null;
             boolean found = false;
             for (int i = 0;; i++) {
-                String d = prop.getProperty(String.valueOf(i));
+                String d = prop.getProperty(Integer.toString(i));
                 if (d == null) {
                     break;
                 }
@@ -362,13 +364,27 @@ public class Shell extends Tool implements Runnable {
         println("[Enter]   " + user);
         print("User      ");
         user = readLine(user);
-        println("[Enter]   Hide");
-        print("Password  ");
-        String password = readLine();
-        if (password.length() == 0) {
-            password = readPassword();
+        for (;;) {
+            String password = readPassword();
+            try {
+                conn = JdbcUtils.getConnection(driver, url + ";IFEXISTS=TRUE", user, password);
+                break;
+            } catch (SQLException ex) {
+                if (ex.getErrorCode() == ErrorCode.DATABASE_NOT_FOUND_2) {
+                    println("Type the same password again to confirm database creation.");
+                    String password2 = readPassword();
+                    if (password.equals(password2)) {
+                        conn = JdbcUtils.getConnection(driver, url, user, password);
+                        break;
+                    } else {
+                        println("Passwords don't match. Try again.");
+                        continue;
+                    }
+                } else {
+                    throw ex;
+                }
+            }
         }
-        conn = JdbcUtils.getConnection(driver, url, user, password);
         stat = conn.createStatement();
         println("Connected");
     }
@@ -432,7 +448,7 @@ public class Shell extends Tool implements Runnable {
 
     private String readLine(String defaultValue) throws IOException {
         String s = readLine();
-        return s.length() == 0 ? defaultValue : s;
+        return s.isEmpty() ? defaultValue : s;
     }
 
     private String readLine() throws IOException {
@@ -444,23 +460,24 @@ public class Shell extends Tool implements Runnable {
     }
 
     private void execute(String sql) {
-        if (sql.trim().length() == 0) {
+        if (StringUtils.isWhitespaceOrEmpty(sql)) {
             return;
         }
-        long time = System.currentTimeMillis();
+        long time = System.nanoTime();
         try {
             ResultSet rs = null;
             try {
                 if (stat.execute(sql)) {
                     rs = stat.getResultSet();
                     int rowCount = printResult(rs, listMode);
-                    time = System.currentTimeMillis() - time;
+                    time = System.nanoTime() - time;
                     println("(" + rowCount + (rowCount == 1 ?
-                            " row, " : " rows, ") + time + " ms)");
+                            " row, " : " rows, ") + TimeUnit.NANOSECONDS.toMillis(time) + " ms)");
                 } else {
                     int updateCount = stat.getUpdateCount();
-                    time = System.currentTimeMillis() - time;
-                    println("(Update count: " + updateCount + ", " + time + " ms)");
+                    time = System.nanoTime() - time;
+                    println("(Update count: " + updateCount + ", " +
+                            TimeUnit.NANOSECONDS.toMillis(time) + " ms)");
                 }
             } finally {
                 JdbcUtils.closeSilently(rs);
@@ -470,7 +487,6 @@ public class Shell extends Tool implements Runnable {
             if (listMode) {
                 e.printStackTrace(err);
             }
-            return;
         }
     }
 
@@ -485,7 +501,7 @@ public class Shell extends Tool implements Runnable {
         ResultSetMetaData meta = rs.getMetaData();
         int len = meta.getColumnCount();
         boolean truncated = false;
-        ArrayList<String[]> rows = New.arrayList();
+        ArrayList<String[]> rows = new ArrayList<>();
         // buffer the header
         String[] columns = new String[len];
         for (int i = 0; i < len; i++) {

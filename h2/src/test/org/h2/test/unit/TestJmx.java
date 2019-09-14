@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.unit;
@@ -16,13 +16,15 @@ import javax.management.MBeanInfo;
 import javax.management.MBeanOperationInfo;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
+import org.h2.engine.Constants;
 import org.h2.test.TestBase;
-import org.h2.util.New;
+import org.h2.test.TestDb;
+import org.h2.util.Utils;
 
 /**
  * Tests the JMX feature.
  */
-public class TestJmx extends TestBase {
+public class TestJmx extends TestDb {
 
     /**
      * Run just this test.
@@ -30,7 +32,9 @@ public class TestJmx extends TestBase {
      * @param a ignored
      */
     public static void main(String... a) throws Exception {
-        TestBase.createCaller().init().test();
+        TestBase base = TestBase.createCaller().init();
+        base.config.mvStore = false;
+        base.test();
     }
 
     @Override
@@ -77,8 +81,13 @@ public class TestJmx extends TestBase {
         }
         assertEquals("REGULAR", mbeanServer.
                 getAttribute(name, "Mode").toString());
-        assertEquals("false", mbeanServer.
-                getAttribute(name, "MultiThreaded").toString());
+        if (config.multiThreaded) {
+            assertEquals("true", mbeanServer.
+                    getAttribute(name, "MultiThreaded").toString());
+        } else {
+            assertEquals("false", mbeanServer.
+                    getAttribute(name, "MultiThreaded").toString());
+        }
         if (config.mvStore) {
             assertEquals("true", mbeanServer.
                     getAttribute(name, "Mvcc").toString());
@@ -97,32 +106,32 @@ public class TestJmx extends TestBase {
                 getAttribute(name, "Version").toString().startsWith("1."));
         assertEquals(14, info.getAttributes().length);
         result = mbeanServer.invoke(name, "listSettings", null, null).toString();
-        assertTrue(result.contains("ANALYZE_AUTO"));
+        assertContains(result, "ANALYZE_AUTO");
 
         conn.setAutoCommit(false);
         stat.execute("create table test(id int)");
         stat.execute("insert into test values(1)");
 
         result = mbeanServer.invoke(name, "listSessions", null, null).toString();
-        assertTrue(result.contains("session id"));
-        if (config.mvcc) {
-            assertTrue(result.contains("read lock"));
+        assertContains(result, "session id");
+        if (config.mvStore) {
+            assertContains(result, "read lock");
         } else {
-            assertTrue(result.contains("write lock"));
+            assertContains(result, "write lock");
         }
 
         assertEquals(2, info.getOperations().length);
-        assertTrue(info.getDescription().contains("database"));
-        attrMap = New.hashMap();
+        assertContains(info.getDescription(), "database");
+        attrMap = new HashMap<>();
         for (MBeanAttributeInfo a : info.getAttributes()) {
             attrMap.put(a.getName(), a);
         }
-        assertTrue(attrMap.get("CacheSize").getDescription().contains("KB"));
-        opMap = New.hashMap();
+        assertContains(attrMap.get("CacheSize").getDescription(), "KB");
+        opMap = new HashMap<>();
         for (MBeanOperationInfo o : info.getOperations()) {
             opMap.put(o.getName(), o);
         }
-        assertTrue(opMap.get("listSessions").getDescription().contains("lock"));
+        assertContains(opMap.get("listSessions").getDescription(), "lock");
         assertEquals(MBeanOperationInfo.INFO, opMap.get("listSessions").getImpact());
 
         conn.close();
@@ -136,10 +145,23 @@ public class TestJmx extends TestBase {
         Set set = mbeanServer.queryNames(name, null);
         name = (ObjectName) set.iterator().next();
 
-        assertEquals("16384", mbeanServer.
-                getAttribute(name, "CacheSizeMax").toString());
+        if (config.memory) {
+            assertEquals("0", mbeanServer.
+                    getAttribute(name, "CacheSizeMax").toString());
+        } else if (config.mvStore) {
+            assertEquals("16384", mbeanServer.
+                    getAttribute(name, "CacheSizeMax").toString());
+        } else {
+            int cacheSize = Utils.scaleForAvailableMemory(
+                    Constants.CACHE_SIZE_DEFAULT);
+            assertEquals("" + cacheSize, mbeanServer.
+                    getAttribute(name, "CacheSizeMax").toString());
+        }
         mbeanServer.setAttribute(name, new Attribute("CacheSizeMax", 1));
-        if (config.mvStore) {
+        if (config.memory) {
+            assertEquals("0", mbeanServer.
+                    getAttribute(name, "CacheSizeMax").toString());
+        } else if (config.mvStore) {
             assertEquals("1024", mbeanServer.
                     getAttribute(name, "CacheSizeMax").toString());
             assertEquals("0", mbeanServer.

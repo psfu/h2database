@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.value;
@@ -20,9 +20,13 @@ public class ValueStringFixed extends ValueString {
     }
 
     private static String trimRight(String s) {
+        return trimRight(s, 0);
+    }
+
+    private static String trimRight(String s, int minLength) {
         int endIndex = s.length() - 1;
         int i = endIndex;
-        while (i >= 0 && s.charAt(i) == ' ') {
+        while (i >= minLength && s.charAt(i) == ' ') {
             i--;
         }
         s = i == endIndex ? s : s.substring(0, i + 1);
@@ -30,8 +34,8 @@ public class ValueStringFixed extends ValueString {
     }
 
     @Override
-    public int getType() {
-        return Value.STRING_FIXED;
+    public int getValueType() {
+        return STRING_FIXED;
     }
 
     /**
@@ -43,11 +47,12 @@ public class ValueStringFixed extends ValueString {
      */
     public static ValueStringFixed get(String s) {
         s = trimRight(s);
-        if (s.length() == 0) {
+        int length = s.length();
+        if (length == 0) {
             return EMPTY;
         }
         ValueStringFixed obj = new ValueStringFixed(StringUtils.cache(s));
-        if (s.length() > SysProperties.OBJECT_CACHE_MAX_PER_ELEMENT_SIZE) {
+        if (length > SysProperties.OBJECT_CACHE_MAX_PER_ELEMENT_SIZE) {
             return obj;
         }
         return (ValueStringFixed) Value.cache(obj);

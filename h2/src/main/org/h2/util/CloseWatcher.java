@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  * Iso8601:
  * Initial Developer: Robert Rathsack (firstName dot lastName at gmx dot de)
@@ -24,7 +24,7 @@ public class CloseWatcher extends PhantomReference<Object> {
     /**
      * The queue (might be set to null at any time).
      */
-    private static ReferenceQueue<Object> queue = new ReferenceQueue<Object>();
+    private static ReferenceQueue<Object> queue = new ReferenceQueue<>();
 
     /**
      * The reference set. Must keep it, otherwise the references are garbage
@@ -92,7 +92,7 @@ public class CloseWatcher extends PhantomReference<Object> {
             boolean stackTrace) {
         ReferenceQueue<Object> q = queue;
         if (q == null) {
-            q = new ReferenceQueue<Object>();
+            q = new ReferenceQueue<>();
             queue = q;
         }
         CloseWatcher cw = new CloseWatcher(o, q, closeable);

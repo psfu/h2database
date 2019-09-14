@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.value;
@@ -10,7 +10,6 @@ import java.sql.SQLException;
 
 import org.h2.api.ErrorCode;
 import org.h2.message.DbException;
-import org.h2.util.MathUtils;
 
 /**
  * Implementation of the BYTE data type.
@@ -41,7 +40,7 @@ public class ValueByte extends Value {
     }
 
     private static ValueByte checkRange(int x) {
-        if (x < Byte.MIN_VALUE || x > Byte.MAX_VALUE) {
+        if ((byte) x != x) {
             throw DbException.get(ErrorCode.NUMERIC_VALUE_OUT_OF_RANGE_1,
                     Integer.toString(x));
         }
@@ -76,7 +75,7 @@ public class ValueByte extends Value {
         if (other.value == 0) {
             throw DbException.get(ErrorCode.DIVISION_BY_ZERO_1, getSQL());
         }
-        return ValueByte.get((byte) (value / other.value));
+        return checkRange(value / other.value);
     }
 
     @Override
@@ -89,13 +88,18 @@ public class ValueByte extends Value {
     }
 
     @Override
-    public String getSQL() {
-        return getString();
+    public StringBuilder getSQL(StringBuilder builder) {
+        return builder.append(value);
     }
 
     @Override
-    public int getType() {
-        return Value.BYTE;
+    public TypeInfo getType() {
+        return TypeInfo.TYPE_BYTE;
+    }
+
+    @Override
+    public int getValueType() {
+        return BYTE;
     }
 
     @Override
@@ -104,19 +108,18 @@ public class ValueByte extends Value {
     }
 
     @Override
-    protected int compareSecure(Value o, CompareMode mode) {
-        ValueByte v = (ValueByte) o;
-        return MathUtils.compareInt(value, v.value);
+    public int getInt() {
+        return value;
+    }
+
+    @Override
+    public int compareTypeSafe(Value o, CompareMode mode) {
+        return Integer.compare(value, ((ValueByte) o).value);
     }
 
     @Override
     public String getString() {
-        return String.valueOf(value);
-    }
-
-    @Override
-    public long getPrecision() {
-        return PRECISION;
+        return Integer.toString(value);
     }
 
     @Override
@@ -126,7 +129,7 @@ public class ValueByte extends Value {
 
     @Override
     public Object getObject() {
-        return Byte.valueOf(value);
+        return value;
     }
 
     @Override
@@ -143,11 +146,6 @@ public class ValueByte extends Value {
      */
     public static ValueByte get(byte i) {
         return (ValueByte) Value.cache(new ValueByte(i));
-    }
-
-    @Override
-    public int getDisplaySize() {
-        return DISPLAY_SIZE;
     }
 
     @Override

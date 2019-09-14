@@ -1,10 +1,11 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.index;
 
+import org.h2.command.dml.AllColumnsForPlan;
 import org.h2.engine.Session;
 import org.h2.result.Row;
 import org.h2.result.SearchRow;
@@ -51,6 +52,24 @@ public interface Index extends SchemaObject {
     void remove(Session session, Row row);
 
     /**
+     * Update index after row change.
+     *
+     * @param session the session
+     * @param oldRow row before the update
+     * @param newRow row after the update
+     */
+    void update(Session session, Row oldRow, Row newRow);
+
+    /**
+     * Returns {@code true} if {@code find()} implementation performs scan over all
+     * index, {@code false} if {@code find()} performs the fast lookup.
+     *
+     * @return {@code true} if {@code find()} implementation performs scan over all
+     *         index, {@code false} if {@code find()} performs the fast lookup
+     */
+    boolean isFindUsingFullTableScan();
+
+    /**
      * Find a row or a list of rows and create a cursor to iterate over the
      * result.
      *
@@ -81,12 +100,14 @@ public interface Index extends SchemaObject {
      * @param session the session
      * @param masks per-column comparison bit masks, null means 'always false',
      *              see constants in IndexCondition
-     * @param filter the table filter
+     * @param filters all joined table filters
+     * @param filter the current table filter index
      * @param sortOrder the sort order
+     * @param allColumnsSet the set of all columns
      * @return the estimated cost
      */
-    double getCost(Session session, int[] masks, TableFilter filter,
-            SortOrder sortOrder);
+    double getCost(Session session, int[] masks, TableFilter[] filters, int filter,
+            SortOrder sortOrder, AllColumnsForPlan allColumnsSet);
 
     /**
      * Remove the index.
@@ -188,6 +209,14 @@ public interface Index extends SchemaObject {
     int getColumnIndex(Column col);
 
     /**
+     * Check if the given column is the first for this index
+     *
+     * @param column the column
+     * @return true if the given columns is the first
+     */
+    boolean isFirstColumn(Column column);
+
+    /**
      * Get the indexed columns as index columns (with ordering information).
      *
      * @return the index columns
@@ -214,15 +243,6 @@ public interface Index extends SchemaObject {
      * @return the table
      */
     Table getTable();
-
-    /**
-     * Commit the operation for a row. This is only important for multi-version
-     * indexes. The method is only called if multi-version is enabled.
-     *
-     * @param operation the operation type
-     * @param row the row
-     */
-    void commit(int operation, Row row);
 
     /**
      * Get the row with the given key.
@@ -256,4 +276,14 @@ public interface Index extends SchemaObject {
      */
     void setSortedInsertMode(boolean sortedInsertMode);
 
+    /**
+     * Creates new lookup batch. Note that returned {@link IndexLookupBatch}
+     * instance can be used multiple times.
+     *
+     * @param filters the table filters
+     * @param filter the filter index (0, 1,...)
+     * @return created batch or {@code null} if batched lookup is not supported
+     *         by this index.
+     */
+    IndexLookupBatch createLookupBatch(TableFilter[] filters, int filter);
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.tools;
@@ -11,7 +11,6 @@ import java.io.OutputStream;
 import java.sql.SQLException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-
 import org.h2.engine.Constants;
 import org.h2.engine.SysProperties;
 import org.h2.message.DbException;
@@ -74,9 +73,8 @@ public class Restore extends Tool {
 
     private static String getOriginalDbName(String fileName, String db)
             throws IOException {
-        InputStream in = null;
-        try {
-            in = FileUtils.newInputStream(fileName);
+
+        try (InputStream in = FileUtils.newInputStream(fileName)) {
             ZipInputStream zipIn = new ZipInputStream(in);
             String originalDbName = null;
             boolean multiple = false;
@@ -108,8 +106,6 @@ public class Restore extends Tool {
                 throw new IOException("Multiple databases found, but not " + db);
             }
             return originalDbName;
-        } finally {
-            IOUtils.closeSilently(in);
         }
     }
 
@@ -159,41 +155,41 @@ public class Restore extends Tool {
                 originalDbLen = originalDbName.length();
             }
             in = FileUtils.newInputStream(zipFileName);
-            ZipInputStream zipIn = new ZipInputStream(in);
-            while (true) {
-                ZipEntry entry = zipIn.getNextEntry();
-                if (entry == null) {
-                    break;
-                }
-                String fileName = entry.getName();
-                // restoring windows backups on linux and vice versa
-                fileName = fileName.replace('\\', SysProperties.FILE_SEPARATOR.charAt(0));
-                fileName = fileName.replace('/', SysProperties.FILE_SEPARATOR.charAt(0));
-                if (fileName.startsWith(SysProperties.FILE_SEPARATOR)) {
-                    fileName = fileName.substring(1);
-                }
-                boolean copy = false;
-                if (db == null) {
-                    copy = true;
-                } else if (fileName.startsWith(originalDbName + ".")) {
-                    fileName = db + fileName.substring(originalDbLen);
-                    copy = true;
-                }
-                if (copy) {
-                    OutputStream o = null;
-                    try {
-                        o = FileUtils.newOutputStream(
-                                directory + SysProperties.FILE_SEPARATOR + fileName, false);
-                        IOUtils.copy(zipIn, o);
-                        o.close();
-                    } finally {
-                        IOUtils.closeSilently(o);
+            try (ZipInputStream zipIn = new ZipInputStream(in)) {
+                while (true) {
+                    ZipEntry entry = zipIn.getNextEntry();
+                    if (entry == null) {
+                        break;
                     }
+                    String fileName = entry.getName();
+                    // restoring windows backups on linux and vice versa
+                    fileName = fileName.replace('\\', SysProperties.FILE_SEPARATOR.charAt(0));
+                    fileName = fileName.replace('/', SysProperties.FILE_SEPARATOR.charAt(0));
+                    if (fileName.startsWith(SysProperties.FILE_SEPARATOR)) {
+                        fileName = fileName.substring(1);
+                    }
+                    boolean copy = false;
+                    if (db == null) {
+                        copy = true;
+                    } else if (fileName.startsWith(originalDbName + ".")) {
+                        fileName = db + fileName.substring(originalDbLen);
+                        copy = true;
+                    }
+                    if (copy) {
+                        OutputStream o = null;
+                        try {
+                            o = FileUtils.newOutputStream(
+                                    directory + SysProperties.FILE_SEPARATOR + fileName, false);
+                            IOUtils.copy(zipIn, o);
+                            o.close();
+                        } finally {
+                            IOUtils.closeSilently(o);
+                        }
+                    }
+                    zipIn.closeEntry();
                 }
                 zipIn.closeEntry();
             }
-            zipIn.closeEntry();
-            zipIn.close();
         } catch (IOException e) {
             throw DbException.convertIOException(e, zipFileName);
         } finally {

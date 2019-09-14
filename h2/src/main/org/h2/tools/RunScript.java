@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.tools;
@@ -11,11 +11,13 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.concurrent.TimeUnit;
 
 import org.h2.engine.Constants;
 import org.h2.engine.SysProperties;
@@ -134,15 +136,15 @@ public class RunScript extends Tool {
             showUsage();
             throw new SQLException("URL not set");
         }
-        long time = System.currentTimeMillis();
+        long time = System.nanoTime();
         if (options != null) {
             processRunscript(url, user, password, script, options);
         } else {
             process(url, user, password, script, null, continueOnError);
         }
         if (showTime) {
-            time = System.currentTimeMillis() - time;
-            out.println("Done in " + time + " ms");
+            time = System.nanoTime() - time;
+            out.println("Done in " + TimeUnit.NANOSECONDS.toMillis(time) + " ms");
         }
     }
 
@@ -164,7 +166,7 @@ public class RunScript extends Tool {
             if (sql == null) {
                 break;
             }
-            if (sql.trim().length() == 0) {
+            if (StringUtils.isWhitespaceOrEmpty(sql)) {
                 continue;
             }
             boolean resultSet = stat.execute(sql);
@@ -203,13 +205,12 @@ public class RunScript extends Tool {
                 break;
             }
             String trim = sql.trim();
-            if (trim.length() == 0) {
+            if (trim.isEmpty()) {
                 continue;
             }
             if (trim.startsWith("@") && StringUtils.toUpperEnglish(trim).
                     startsWith("@INCLUDE")) {
-                sql = trim;
-                sql = sql.substring("@INCLUDE".length()).trim();
+                sql = StringUtils.trimSubstring(sql, "@INCLUDE".length());
                 if (!FileUtils.isAbsolute(sql)) {
                     sql = path + SysProperties.FILE_SEPARATOR + sql;
                 }
@@ -320,14 +321,11 @@ public class RunScript extends Tool {
             boolean continueOnError) throws SQLException {
         try {
             org.h2.Driver.load();
-            Connection conn = DriverManager.getConnection(url, user, password);
             if (charset == null) {
-                charset = Constants.UTF8;
+                charset = StandardCharsets.UTF_8;
             }
-            try {
+            try (Connection conn = DriverManager.getConnection(url, user, password)) {
                 process(conn, fileName, continueOnError, charset);
-            } finally {
-                conn.close();
             }
         } catch (IOException e) {
             throw DbException.convertIOException(e, fileName);

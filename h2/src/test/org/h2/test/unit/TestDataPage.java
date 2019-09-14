@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.unit;
@@ -8,15 +8,15 @@ package org.h2.test.unit;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Time;
-import java.sql.Types;
+import java.util.concurrent.TimeUnit;
 
 import org.h2.api.JavaObjectSerializer;
+import org.h2.pagestore.db.LobStorageBackend;
+import org.h2.result.SimpleResult;
 import org.h2.store.Data;
 import org.h2.store.DataHandler;
 import org.h2.store.FileStore;
-import org.h2.store.LobStorageBackend;
 import org.h2.test.TestBase;
-import org.h2.tools.SimpleResultSet;
 import org.h2.util.SmallLRUCache;
 import org.h2.util.TempFileDeleter;
 import org.h2.value.CompareMode;
@@ -40,6 +40,7 @@ import org.h2.value.ValueStringFixed;
 import org.h2.value.ValueStringIgnoreCase;
 import org.h2.value.ValueTime;
 import org.h2.value.ValueTimestamp;
+import org.h2.value.ValueTimestampTimeZone;
 import org.h2.value.ValueUuid;
 
 /**
@@ -71,9 +72,9 @@ public class TestDataPage extends TestBase implements DataHandler {
     }
 
     private static void testPerformance() {
-        Data data = Data.create(null, 1024);
+        Data data = Data.create(null, 1024, false);
         for (int j = 0; j < 4; j++) {
-            long time = System.currentTimeMillis();
+            long time = System.nanoTime();
             for (int i = 0; i < 100000; i++) {
                 data.reset();
                 for (int k = 0; k < 30; k++) {
@@ -92,10 +93,12 @@ public class TestDataPage extends TestBase implements DataHandler {
             //                    data.writeVarInt(k * k);
             //                }
             //            }
-            System.out.println("write: " + (System.currentTimeMillis() - time) + " ms");
+            System.out.println("write: " +
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time) +
+                    " ms");
         }
         for (int j = 0; j < 4; j++) {
-            long time = System.currentTimeMillis();
+            long time = System.nanoTime();
             for (int i = 0; i < 1000000; i++) {
                 data.reset();
                 for (int k = 0; k < 30; k++) {
@@ -114,14 +117,16 @@ public class TestDataPage extends TestBase implements DataHandler {
             //                    data.readInt();
             //                }
             //            }
-            System.out.println("read: " + (System.currentTimeMillis() - time) + " ms");
+            System.out.println("read: " +
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time) +
+                    " ms");
         }
     }
 
     private void testValues() {
         testValue(ValueNull.INSTANCE);
-        testValue(ValueBoolean.get(false));
-        testValue(ValueBoolean.get(true));
+        testValue(ValueBoolean.FALSE);
+        testValue(ValueBoolean.TRUE);
         for (int i = 0; i < 256; i++) {
             testValue(ValueByte.get((byte) i));
         }
@@ -166,6 +171,7 @@ public class TestDataPage extends TestBase implements DataHandler {
         testValue(ValueTime.get(new Time(0)));
         testValue(ValueTimestamp.fromMillis(System.currentTimeMillis()));
         testValue(ValueTimestamp.fromMillis(0));
+        testValue(ValueTimestampTimeZone.parse("2000-01-01 10:00:00"));
         testValue(ValueJavaObject.getNoCopy(null, new byte[0], this));
         testValue(ValueJavaObject.getNoCopy(null, new byte[100], this));
         for (int i = 0; i < 300; i++) {
@@ -198,33 +204,42 @@ public class TestDataPage extends TestBase implements DataHandler {
             }
         }
         testValue(ValueArray.get(new Value[0]));
-        testValue(ValueArray.get(new Value[] { ValueBoolean.get(true),
+        testValue(ValueArray.get(new Value[] { ValueBoolean.TRUE,
                 ValueInt.get(10) }));
 
-        SimpleResultSet rs = new SimpleResultSet();
-        rs.setAutoClose(false);
-        rs.addColumn("ID", Types.INTEGER, 0, 0);
-        rs.addColumn("NAME", Types.VARCHAR, 255, 0);
-        rs.addRow(1, "Hello");
-        rs.addRow(2, "World");
-        rs.addRow(3, "Peace");
+        SimpleResult rs = new SimpleResult();
+        rs.addColumn("ID", "ID", Value.INT, 0, 0);
+        rs.addColumn("NAME", "NAME", Value.STRING, 255, 0);
+        rs.addRow(ValueInt.get(1), ValueString.get("Hello"));
+        rs.addRow(ValueInt.get(2), ValueString.get("World"));
+        rs.addRow(ValueInt.get(3), ValueString.get("Peace"));
         testValue(ValueResultSet.get(rs));
     }
 
     private void testValue(Value v) {
-        Data data = Data.create(null, 1024);
-        data.checkCapacity((int) v.getPrecision());
+        testValue(v, false);
+        switch (v.getValueType()) {
+        case Value.DATE:
+        case Value.TIME:
+        case Value.TIMESTAMP:
+            testValue(v, true);
+        }
+    }
+
+    private void testValue(Value v, boolean storeLocalTime) {
+        Data data = Data.create(null, 1024, storeLocalTime);
+        data.checkCapacity((int) v.getType().getPrecision());
         data.writeValue(v);
         data.writeInt(123);
         data.reset();
         Value v2 = data.readValue();
-        assertEquals(v.getType(), v2.getType());
-        assertEquals(0, v.compareTo(v2, compareMode));
+        assertEquals(v.getValueType(), v2.getValueType());
+        assertEquals(0, v.compareTo(v2, null, compareMode));
         assertEquals(123, data.readInt());
     }
 
     private void testAll() {
-        Data page = Data.create(this, 128);
+        Data page = Data.create(this, 128, false);
 
         char[] data = new char[0x10000];
         for (int i = 0; i < data.length; i++) {

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.jdbc;
@@ -14,11 +14,12 @@ import java.sql.Statement;
 
 import org.h2.api.ErrorCode;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 
 /**
  * Tests Statement.cancel
  */
-public class TestCancel extends TestBase {
+public class TestCancel extends TestDb {
 
     private static int lastVisited;
 
@@ -189,9 +190,9 @@ public class TestCancel extends TestBase {
             cancel.start();
             try {
                 Thread.yield();
-                assertThrows(ErrorCode.STATEMENT_WAS_CANCELED, query).
-                        executeQuery("SELECT VISIT(ID), (SELECT SUM(X) " +
-                                "FROM SYSTEM_RANGE(1, 10000) WHERE X<>ID) FROM TEST ORDER BY ID");
+                assertThrows(ErrorCode.STATEMENT_WAS_CANCELED, query,
+                        "SELECT VISIT(ID), (SELECT SUM(X) " +
+                        "FROM SYSTEM_RANGE(1, 100000) WHERE X<>ID) FROM TEST ORDER BY ID");
             } finally {
                 cancel.stopNow();
                 cancel.join();

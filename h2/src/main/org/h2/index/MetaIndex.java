@@ -1,11 +1,12 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.index;
 
 import java.util.ArrayList;
+import org.h2.command.dml.AllColumnsForPlan;
 import org.h2.engine.Session;
 import org.h2.message.DbException;
 import org.h2.result.Row;
@@ -25,7 +26,7 @@ public class MetaIndex extends BaseIndex {
     private final boolean scan;
 
     public MetaIndex(MetaTable meta, IndexColumn[] columns, boolean scan) {
-        initBaseIndex(meta, 0, null, columns, IndexType.createNonUnique(true));
+        super(meta, 0, null, columns, IndexType.createNonUnique(true));
         this.meta = meta;
         this.scan = scan;
     }
@@ -52,13 +53,14 @@ public class MetaIndex extends BaseIndex {
     }
 
     @Override
-    public double getCost(Session session, int[] masks, TableFilter filter,
-            SortOrder sortOrder) {
+    public double getCost(Session session, int[] masks,
+            TableFilter[] filters, int filter, SortOrder sortOrder,
+            AllColumnsForPlan allColumnsSet) {
         if (scan) {
             return 10 * MetaTable.ROW_COUNT_APPROXIMATION;
         }
         return getCostRangeIndex(masks, MetaTable.ROW_COUNT_APPROXIMATION,
-                filter, sortOrder);
+                filters, filter, sortOrder, false, allColumnsSet);
     }
 
     @Override
@@ -78,6 +80,14 @@ public class MetaIndex extends BaseIndex {
             return -1;
         }
         return super.getColumnIndex(col);
+    }
+
+    @Override
+    public boolean isFirstColumn(Column column) {
+        if (scan) {
+            return false;
+        }
+        return super.isFirstColumn(column);
     }
 
     @Override

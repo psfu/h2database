@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.build;
@@ -18,11 +18,17 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.RandomAccessFile;
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -30,11 +36,13 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.jar.JarOutputStream;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+
 
 /**
  * This class is a complete pure Java build tool. It allows to build this
@@ -43,6 +51,16 @@ import java.util.zip.ZipOutputStream;
  * no XML, a bit faster.
  */
 public class BuildBase {
+
+    /**
+     * Stores descriptions for methods which can be invoked as build targets.
+     */
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @Documented
+    public static @interface Description {
+        String summary() default "";
+    }
 
     /**
      * A list of strings.
@@ -159,12 +177,24 @@ public class BuildBase {
     protected boolean quiet;
 
     /**
+     * The full path to the executable of the current JRE.
+     */
+    protected final String javaExecutable = System.getProperty("java.home") +
+            File.separator + "bin" + File.separator + "java";
+
+    /**
+     * The full path to the tools jar of the current JDK.
+     */
+    protected final String javaToolsJar = System.getProperty("java.home") + File.separator + ".." +
+            File.separator + "lib" + File.separator + "tools.jar";
+
+    /**
      * This method should be called by the main method.
      *
      * @param args the command line parameters
      */
     protected void run(String... args) {
-        long time = System.currentTimeMillis();
+        long time = System.nanoTime();
         if (args.length == 0) {
             all();
         } else {
@@ -192,7 +222,7 @@ public class BuildBase {
                 }
             }
         }
-        println("Done in " + (System.currentTimeMillis() - time) + " ms");
+        println("Done in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time) + " ms");
     }
 
     private boolean runTarget(String target) {
@@ -226,13 +256,13 @@ public class BuildBase {
             } else if (line.length() == 0) {
                 line = last;
             }
-            long time = System.currentTimeMillis();
+            long time = System.nanoTime();
             try {
                 runTarget(line);
             } catch (Exception e) {
                 System.out.println(e);
             }
-            println("Done in " + (System.currentTimeMillis() - time) + " ms");
+            println("Done in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - time) + " ms");
             last = line;
         }
     }
@@ -244,9 +274,7 @@ public class BuildBase {
             } catch (InvocationTargetException e) {
                 throw e.getCause();
             }
-        } catch (Error e) {
-            throw e;
-        } catch (RuntimeException e) {
+        } catch (Error | RuntimeException e) {
             throw e;
         } catch (Throwable e) {
             throw new RuntimeException(e);
@@ -283,11 +311,18 @@ public class BuildBase {
             }
         });
         sysOut.println("Targets:");
+        String description;
         for (Method m : methods) {
             int mod = m.getModifiers();
             if (!Modifier.isStatic(mod) && Modifier.isPublic(mod)
                     && m.getParameterTypes().length == 0) {
-                sysOut.println(m.getName());
+                if (m.isAnnotationPresent(Description.class)) {
+                    description = String.format("%1$-20s %2$s",
+                            m.getName(), m.getAnnotation(Description.class).summary());
+                } else {
+                    description = m.getName();
+                }
+                sysOut.println(description);
             }
         }
         sysOut.println();
@@ -307,9 +342,28 @@ public class BuildBase {
      */
     protected int execScript(String script, StringList args) {
         if (isWindows()) {
-            script = script + ".bat";
+            // Under windows, we use the "cmd" command interpreter since it will
+            // search the path for us without us having to hard-code an
+            // extension for the script we want. (Sometimes we don't know if the
+            // extension will be .bat or .cmd)
+            StringList newArgs = new StringList();
+            newArgs.add("/C");
+            newArgs.add(script);
+            newArgs.addAll(args);
+            return exec("cmd", newArgs);
         }
         return exec(script, args);
+    }
+
+    /**
+     * Execute java in a separate process, but using the java executable of the
+     * current JRE.
+     *
+     * @param args the command line parameters for the java command
+     * @return the exit value
+     */
+    protected int execJava(StringList args) {
+        return exec(javaExecutable, args);
     }
 
     /**
@@ -420,7 +474,7 @@ public class BuildBase {
         }
     }
 
-    private PrintStream filter(PrintStream out, final String[] exclude) {
+    private static PrintStream filter(PrintStream out, final String[] exclude) {
         return new PrintStream(new FilterOutputStream(out) {
             private ByteArrayOutputStream buff = new ByteArrayOutputStream();
 
@@ -440,7 +494,7 @@ public class BuildBase {
                 buff.write(b);
                 if (b == '\n') {
                     byte[] data = buff.toByteArray();
-                    String line = new String(data, "UTF-8");
+                    String line = new String(data, StandardCharsets.UTF_8);
                     boolean print = true;
                     for (String l : exclude) {
                         if (line.startsWith(l)) {
@@ -545,7 +599,7 @@ public class BuildBase {
         if (targetFile.exists()) {
             return;
         }
-        String repoFile = group + "/" + artifact + "/" + version + "/"
+        String repoFile = group.replace('.', '/') + "/" + artifact + "/" + version + "/"
                 + artifact + "-" + version + ".jar";
         mkdirs(targetFile.getAbsoluteFile().getParentFile());
         String localMavenDir = getLocalMavenDir();
@@ -606,11 +660,11 @@ public class BuildBase {
             println("Downloading " + fileURL);
             URL url = new URL(fileURL);
             InputStream in = new BufferedInputStream(url.openStream());
-            long last = System.currentTimeMillis();
+            long last = System.nanoTime();
             int len = 0;
             while (true) {
-                long now = System.currentTimeMillis();
-                if (now > last + 1000) {
+                long now = System.nanoTime();
+                if (now > last + TimeUnit.SECONDS.toNanos(1)) {
                     println("Downloaded " + len + " bytes");
                     last = now;
                 }
@@ -789,6 +843,35 @@ public class BuildBase {
                     return comp;
                 }
             });
+        } else if (jar) {
+            Collections.sort(files, new Comparator<File>() {
+                private int priority(String path) {
+                    if (path.startsWith("META-INF/")) {
+                        if (path.equals("META-INF/MANIFEST.MF")) {
+                            return 0;
+                        }
+                        if (path.startsWith("services/", 9)) {
+                            return 1;
+                        }
+                        return 2;
+                    }
+                    if (!path.endsWith(".zip")) {
+                        return 3;
+                    }
+                    return 4;
+                }
+
+                @Override
+                public int compare(File f1, File f2) {
+                    String p1 = f1.getPath();
+                    String p2 = f2.getPath();
+                    int comp = Integer.compare(priority(p1), priority(p2));
+                    if (comp != 0) {
+                        return comp;
+                    }
+                    return p1.compareTo(p2);
+                }
+            });
         }
         mkdirs(new File(destFile).getAbsoluteFile().getParentFile());
         // normalize the path (replace / with \ if required)
@@ -840,6 +923,25 @@ public class BuildBase {
         return System.getProperty("java.specification.version");
     }
 
+    /**
+     * Get the current Java version as integer value.
+     *
+     * @return the Java version (7, 8, 9, 10, 11, etc)
+     */
+    public static int getJavaVersion() {
+        int version = 7;
+        String v = getJavaSpecVersion();
+        if (v != null) {
+            int idx = v.indexOf('.');
+            if (idx >= 0) {
+                // 1.7, 1.8
+                v = v.substring(idx + 1);
+            }
+            version = Integer.parseInt(v);
+        }
+        return version;
+    }
+
     private static List<String> getPaths(FileList files) {
         StringList list = new StringList();
         for (File f : files) {
@@ -870,7 +972,7 @@ public class BuildBase {
                 }));
             }
             Method compile = clazz.getMethod("compile", new Class<?>[] { String[].class });
-            Object instance = clazz.newInstance();
+            Object instance = clazz.getDeclaredConstructor().newInstance();
             result = (Integer) invoke(compile, instance, new Object[] { array });
         } catch (Exception e) {
             e.printStackTrace();

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.poweroff;
@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
-import java.util.Date;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.Driver;
@@ -23,13 +22,13 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Random;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import org.h2.util.IOUtils;
-import org.h2.util.New;
 
 /**
  * This standalone test checks if recovery of a database works after power
@@ -107,7 +106,7 @@ public class TestRecover {
         SimpleDateFormat sd = new SimpleDateFormat("yyMMdd-HHmmss");
         String date = sd.format(new Date());
         File zipFile = new File(root, "backup-" + date + "-" + node + ".zip");
-        ArrayList<File> list = New.arrayList();
+        ArrayList<File> list = new ArrayList<>();
         File base = new File(sourcePath);
         listRecursive(list, base);
         if (list.size() == 0) {
@@ -133,12 +132,9 @@ public class TestRecover {
                     }
                     ZipEntry entry = new ZipEntry(basePath + entryName);
                     zipOut.putNextEntry(entry);
-                    InputStream in = null;
-                    try {
-                        in = new FileInputStream(fileName);
+
+                    try (InputStream in = new FileInputStream(fileName)) {
                         IOUtils.copyAndCloseInput(in, zipOut);
-                    } finally {
-                        IOUtils.closeSilently(in);
                     }
                     zipOut.closeEntry();
                 }
@@ -209,7 +205,7 @@ public class TestRecover {
                 // ignore
             }
             try {
-                Driver driver = (Driver) Class.forName(DRIVER).newInstance();
+                Driver driver = (Driver) Class.forName(DRIVER).getDeclaredConstructor().newInstance();
                 DriverManager.registerDriver(driver);
             } catch (Exception e) {
                 e.printStackTrace();

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.jdbc;
@@ -14,8 +14,12 @@ import java.util.Map;
 import org.h2.api.ErrorCode;
 import org.h2.message.DbException;
 import org.h2.message.TraceObject;
-import org.h2.tools.SimpleResultSet;
+import org.h2.result.SimpleResult;
+import org.h2.value.TypeInfo;
 import org.h2.value.Value;
+import org.h2.value.ValueArray;
+import org.h2.value.ValueLong;
+import org.h2.value.ValueNull;
 
 /**
  * Represents an ARRAY value.
@@ -28,10 +32,10 @@ public class JdbcArray extends TraceObject implements Array {
     /**
      * INTERNAL
      */
-    JdbcArray(JdbcConnection conn, Value value, int id) {
+    public JdbcArray(JdbcConnection conn, Value value, int id) {
         setTrace(conn.getSession().getTrace(), TraceObject.ARRAY, id);
         this.conn = conn;
-        this.value = value;
+        this.value = value.convertTo(Value.ARRAY);
     }
 
     /**
@@ -61,7 +65,9 @@ public class JdbcArray extends TraceObject implements Array {
     @Override
     public Object getArray(Map<String, Class<?>> map) throws SQLException {
         try {
-            debugCode("getArray("+quoteMap(map)+");");
+            if (isDebugEnabled()) {
+                debugCode("getArray("+quoteMap(map)+");");
+            }
             JdbcConnection.checkMap(map);
             checkClosed();
             return get();
@@ -82,7 +88,9 @@ public class JdbcArray extends TraceObject implements Array {
     @Override
     public Object getArray(long index, int count) throws SQLException {
         try {
-            debugCode("getArray(" + index + ", " + count + ");");
+            if (isDebugEnabled()) {
+                debugCode("getArray(" + index + ", " + count + ");");
+            }
             checkClosed();
             return get(index, count);
         } catch (Exception e) {
@@ -104,7 +112,9 @@ public class JdbcArray extends TraceObject implements Array {
     public Object getArray(long index, int count, Map<String, Class<?>> map)
             throws SQLException {
         try {
-            debugCode("getArray(" + index + ", " + count + ", " + quoteMap(map)+");");
+            if (isDebugEnabled()) {
+                debugCode("getArray(" + index + ", " + count + ", " + quoteMap(map)+");");
+            }
             checkClosed();
             JdbcConnection.checkMap(map);
             return get(index, count);
@@ -159,7 +169,7 @@ public class JdbcArray extends TraceObject implements Array {
         try {
             debugCodeCall("getResultSet");
             checkClosed();
-            return getResultSet(get(), 0);
+            return getResultSetImpl(1L, Integer.MAX_VALUE);
         } catch (Exception e) {
             throw logAndConvert(e);
         }
@@ -175,10 +185,12 @@ public class JdbcArray extends TraceObject implements Array {
     @Override
     public ResultSet getResultSet(Map<String, Class<?>> map) throws SQLException {
         try {
-            debugCode("getResultSet("+quoteMap(map)+");");
+            if (isDebugEnabled()) {
+                debugCode("getResultSet("+quoteMap(map)+");");
+            }
             checkClosed();
             JdbcConnection.checkMap(map);
-            return getResultSet(get(), 0);
+            return getResultSetImpl(1L, Integer.MAX_VALUE);
         } catch (Exception e) {
             throw logAndConvert(e);
         }
@@ -197,9 +209,11 @@ public class JdbcArray extends TraceObject implements Array {
     @Override
     public ResultSet getResultSet(long index, int count) throws SQLException {
         try {
-            debugCode("getResultSet("+index+", " + count+");");
+            if (isDebugEnabled()) {
+                debugCode("getResultSet("+index+", " + count+");");
+            }
             checkClosed();
-            return getResultSet(get(index, count), index - 1);
+            return getResultSetImpl(index, count);
         } catch (Exception e) {
             throw logAndConvert(e);
         }
@@ -221,10 +235,12 @@ public class JdbcArray extends TraceObject implements Array {
     public ResultSet getResultSet(long index, int count,
             Map<String, Class<?>> map) throws SQLException {
         try {
-            debugCode("getResultSet("+index+", " + count+", " + quoteMap(map)+");");
+            if (isDebugEnabled()) {
+                debugCode("getResultSet("+index+", " + count+", " + quoteMap(map)+");");
+            }
             checkClosed();
             JdbcConnection.checkMap(map);
-            return getResultSet(get(index, count), index - 1);
+            return getResultSetImpl(index, count);
         } catch (Exception e) {
             throw logAndConvert(e);
         }
@@ -239,15 +255,20 @@ public class JdbcArray extends TraceObject implements Array {
         value = null;
     }
 
-    private static ResultSet getResultSet(Object[] array, long offset) {
-        SimpleResultSet rs = new SimpleResultSet();
-        rs.addColumn("INDEX", Types.BIGINT, 0, 0);
+    private ResultSet getResultSetImpl(long index, int count) {
+        int id = getNextId(TraceObject.RESULT_SET);
+        SimpleResult rs = new SimpleResult();
+        rs.addColumn("INDEX", "INDEX", TypeInfo.TYPE_LONG);
         // TODO array result set: there are multiple data types possible
-        rs.addColumn("VALUE", Types.NULL, 0, 0);
-        for (int i = 0; i < array.length; i++) {
-            rs.addRow(Long.valueOf(offset + i + 1), array[i]);
+        rs.addColumn("VALUE", "VALUE", TypeInfo.TYPE_NULL);
+        if (value != ValueNull.INSTANCE) {
+            Value[] values = ((ValueArray) value).getList();
+            count = checkRange(index, count, values.length);
+            for (int i = (int) index; i < index + count; i++) {
+                rs.addRow(ValueLong.get(i), values[i - 1]);
+            }
         }
-        return rs;
+        return new JdbcResultSet(conn, null, null, rs, id, false, true, false);
     }
 
     private void checkClosed() {
@@ -258,22 +279,31 @@ public class JdbcArray extends TraceObject implements Array {
     }
 
     private Object[] get() {
-        return (Object[]) value.convertTo(Value.ARRAY).getObject();
+        return (Object[]) value.getObject();
     }
 
     private Object[] get(long index, int count) {
-        Object[] array = get();
-        if (count < 0 || count > array.length) {
-            throw DbException.getInvalidValueException("count (1.."
-                    + array.length + ")", count);
+        if (value == ValueNull.INSTANCE) {
+            return null;
         }
-        if (index < 1 || index > array.length) {
-            throw DbException.getInvalidValueException("index (1.."
-                    + array.length + ")", index);
+        Value[] values = ((ValueArray) value).getList();
+        count = checkRange(index, count, values.length);
+        Object[] a = new Object[count];
+        for (int i = 0, j = (int) index - 1; i < count; i++, j++) {
+            a[i] = values[j].getObject();
         }
-        Object[] subset = new Object[count];
-        System.arraycopy(array, (int) (index - 1), subset, 0, count);
-        return subset;
+        return a;
+    }
+
+    private static int checkRange(long index, int count, int len) {
+        if (index < 1 || index > len) {
+            throw DbException.getInvalidValueException("index (1.." + len + ')', index);
+        }
+        int rem = len - (int) index + 1;
+        if (count < 0) {
+            throw DbException.getInvalidValueException("count (0.." + rem + ')', count);
+        }
+        return Math.min(rem, count);
     }
 
     /**

@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.unit;
@@ -9,9 +9,9 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+
 import org.h2.test.TestBase;
 import org.h2.util.MathUtils;
-import org.h2.util.New;
 import org.h2.value.ValueInt;
 
 /**
@@ -26,6 +26,8 @@ public class TestClearReferences extends TestBase {
         "org.h2.compress.CompressLZF.cachedHashTable",
         "org.h2.engine.DbSettings.defaultSettings",
         "org.h2.engine.SessionRemote.sessionFactory",
+        "org.h2.expression.function.DateTimeFunctions.MONTHS_AND_WEEKS",
+        "org.h2.expression.function.ToChar.NAMES",
         "org.h2.jdbcx.JdbcDataSourceFactory.cachedTraceSystem",
         "org.h2.store.RecoverTester.instance",
         "org.h2.store.fs.FilePath.defaultProvider",
@@ -36,6 +38,7 @@ public class TestClearReferences extends TestBase {
         "org.h2.tools.CompressTool.cachedBuffer",
         "org.h2.util.CloseWatcher.queue",
         "org.h2.util.CloseWatcher.refs",
+        "org.h2.util.DateTimeUtils.timeZone",
         "org.h2.util.MathUtils.cachedSecureRandom",
         "org.h2.util.NetUtils.cachedLocalAddress",
         "org.h2.util.StringUtils.softCache",
@@ -45,7 +48,21 @@ public class TestClearReferences extends TestBase {
         "org.h2.util.Task.counter",
         "org.h2.value.CompareMode.lastUsed",
         "org.h2.value.Value.softCache",
+        "org.h2.value.ValueBytes.type",
+        "org.h2.value.ValueCollectionBase.type",
+        "org.h2.value.ValueDecimal.type",
+        "org.h2.value.ValueInterval.type",
+        "org.h2.value.ValueLob.type",
+        "org.h2.value.ValueLobDb.type",
+        "org.h2.value.ValueString.type",
     };
+
+    /**
+     * Path to main sources. In IDE project may be located either in the root
+     * directory of repository or in the h2 subdirectory.
+     */
+    private final String SOURCE_PATH = new File("h2/src/main/org/h2/Driver.java").exists()
+            ? "h2/src/main/" : "src/main/";
 
     private boolean hasError;
 
@@ -56,15 +73,6 @@ public class TestClearReferences extends TestBase {
      */
     public static void main(String... a) throws Exception {
         TestBase.createCaller().init().test();
-    }
-
-    private void clear() throws Exception {
-        ArrayList<Class <?>> classes = New.arrayList();
-        check(classes, new File("bin/org/h2"));
-        check(classes, new File("temp/org/h2"));
-        for (Class<?> clazz : classes) {
-            clearClass(clazz);
-        }
     }
 
     @Override
@@ -91,14 +99,23 @@ public class TestClearReferences extends TestBase {
         }
     }
 
-    private void check(ArrayList<Class <?>> classes, File file) {
+    private void clear() throws Exception {
+        ArrayList<Class <?>> classes = new ArrayList<>();
+        findClasses(classes, new File("bin/org/h2"));
+        findClasses(classes, new File("temp/org/h2"));
+        for (Class<?> clazz : classes) {
+            clearClass(clazz);
+        }
+    }
+
+    private void findClasses(ArrayList<Class <?>> classes, File file) {
         String name = file.getName();
         if (file.isDirectory()) {
             if (name.equals("CVS") || name.equals(".svn")) {
                 return;
             }
             for (File f : file.listFiles()) {
-                check(classes, f);
+                findClasses(classes, f);
             }
         } else {
             if (!name.endsWith(".class")) {
@@ -110,7 +127,7 @@ public class TestClearReferences extends TestBase {
             String className = file.getAbsolutePath().replace('\\', '/');
             className = className.substring(className.lastIndexOf("org/h2"));
             String packageName = className.substring(0, className.lastIndexOf('/'));
-            if (!new File("src/main/" + packageName).exists()) {
+            if (!new File(SOURCE_PATH + packageName).exists()) {
                 return;
             }
             className = className.replace('/', '.');
@@ -154,7 +171,7 @@ public class TestClearReferences extends TestBase {
             throw e;
         }
         for (Field field : fields) {
-            if (field.getType().isPrimitive() || field.getName().indexOf("$") != -1) {
+            if (field.getType().isPrimitive() || field.getName().contains("$")) {
                 continue;
             }
             int modifiers = field.getModifiers();
@@ -182,7 +199,7 @@ public class TestClearReferences extends TestBase {
 
     private void clearInstance(Object instance) throws Exception {
         for (Field field : instance.getClass().getDeclaredFields()) {
-            if (field.getType().isPrimitive() || (field.getName().indexOf("$") != -1)) {
+            if (field.getType().isPrimitive() || field.getName().contains("$")) {
                 continue;
             }
             int modifiers = field.getModifiers();

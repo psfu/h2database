@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.db;
@@ -9,13 +9,15 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.concurrent.TimeUnit;
 
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 
 /**
  * Various small performance tests.
  */
-public class TestSpeed extends TestBase {
+public class TestSpeed extends TestDb {
 
     /**
      * Run just this test.
@@ -55,7 +57,7 @@ public class TestSpeed extends TestBase {
         // stat.execute("CREATE TABLE TEST_A(ID INT PRIMARY KEY, NAME
         // VARCHAR(255))");
         // stat.execute("INSERT INTO TEST_A VALUES(0, 'Hello')");
-        long time = System.currentTimeMillis();
+        long time = System.nanoTime();
         // for(int i=1; i<8000; i*=2) {
         // stat.execute("INSERT INTO TEST_A SELECT ID+"+i+", NAME FROM TEST_A");
         //
@@ -68,7 +70,6 @@ public class TestSpeed extends TestBase {
         // rs.getString(2);
         // }
         // }
-        // System.out.println(System.currentTimeMillis()-time);
 
         //
         // stat.execute("CREATE TABLE TEST_B(ID INT PRIMARY KEY, NAME
@@ -89,7 +90,7 @@ public class TestSpeed extends TestBase {
         // rs.getString("ID");
         // stat.execute("DROP TABLE TEST");
 
-        // long time = System.currentTimeMillis();
+        // long time = System.nanoTime();
 
         stat.execute("DROP TABLE IF EXISTS TEST");
         stat.execute("CREATE CACHED TABLE TEST(ID INT PRIMARY KEY, NAME VARCHAR(255))");
@@ -108,8 +109,8 @@ public class TestSpeed extends TestBase {
         // System.exit(0);
         // System.out.println("END "+Value.cacheHit+" "+Value.cacheMiss);
 
-        time = System.currentTimeMillis() - time;
-        trace(time + " insert");
+        time = System.nanoTime() - time;
+        trace(TimeUnit.NANOSECONDS.toMillis(time) + " insert");
 
         // if(true) return;
 
@@ -122,7 +123,7 @@ public class TestSpeed extends TestBase {
 
         // conn.close();
 
-        time = System.currentTimeMillis();
+        time = System.nanoTime();
 
         prep = conn.prepareStatement("UPDATE TEST " +
                 "SET NAME='Another data row which is long' WHERE ID=?");
@@ -150,12 +151,13 @@ public class TestSpeed extends TestBase {
         // }
         // }
 
-        time = System.currentTimeMillis() - time;
-        trace(time + " update");
+        time = System.nanoTime() - time;
+        trace(TimeUnit.NANOSECONDS.toMillis(time) + " update");
 
+        time = System.nanoTime();
         conn.close();
-        time = System.currentTimeMillis() - time;
-        trace(time + " close");
+        time = System.nanoTime() - time;
+        trace(TimeUnit.NANOSECONDS.toMillis(time) + " close");
         deleteDb("speed");
     }
 
