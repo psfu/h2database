@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2022 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -23,7 +23,7 @@ public class TestIgnoreCatalogs extends TestDb {
      * @param a ignored
      */
     public static void main(String... a) throws Exception {
-        TestBase.createCaller().init().test();
+        TestBase.createCaller().init().testFromMain();
     }
 
     @Override
@@ -40,7 +40,7 @@ public class TestIgnoreCatalogs extends TestDb {
         doesNotAcceptEmptySchemaWhenNotMSSQL();
     }
 
-    public void doesNotAcceptEmptySchemaWhenNotMSSQL() throws SQLException {
+    private void doesNotAcceptEmptySchemaWhenNotMSSQL() throws SQLException {
         try (Connection conn = getConnection("ignoreCatalogs;IGNORE_CATALOGS=TRUE")) {
             try (Statement stat = conn.createStatement()) {
                 prepareDbAndSetDefaultSchema(stat);
@@ -61,8 +61,7 @@ public class TestIgnoreCatalogs extends TestDb {
         }
     }
 
-
-    public void canCommentOn() throws Exception {
+    private void canCommentOn() throws Exception {
         try (Connection conn = getConnection("ignoreCatalogs;MODE=MSSQLSERVER;IGNORE_CATALOGS=TRUE;")) {
             try (Statement stat = conn.createStatement()) {
                 prepareDbAndSetDefaultSchema(stat);
@@ -79,6 +78,7 @@ public class TestIgnoreCatalogs extends TestDb {
                 assertThrows(ErrorCode.SYNTAX_ERROR_2, stat, "comment on column catalog1...test.id is 'id comment1'");
                 assertThrows(ErrorCode.SYNTAX_ERROR_2, stat, "comment on column catalog1..test..id is 'id comment1'");
                 assertThrows(ErrorCode.SYNTAX_ERROR_2, stat, "comment on column ..test..id is 'id comment1'");
+                assertThrows(ErrorCode.SYNTAX_ERROR_2, stat, "comment on column test..id is 'id comment1'");
                 assertThrows(ErrorCode.SYNTAX_ERROR_2, stat, "comment on column .PUBLIC.TEST.ID 'id comment1'");
                 assertThrows(ErrorCode.SYNTAX_ERROR_2, stat, "comment on column .TEST.ID 'id comment1'");
             }
@@ -87,7 +87,7 @@ public class TestIgnoreCatalogs extends TestDb {
         }
     }
 
-    public void canUseDefaultSchema() throws Exception {
+    private void canUseDefaultSchema() throws Exception {
         try (Connection conn = getConnection("ignoreCatalogs;MODE=MSSQLSERVER;IGNORE_CATALOGS=TRUE;")) {
             try (Statement stat = conn.createStatement()) {
                 prepareDbAndSetDefaultSchema(stat);
@@ -105,7 +105,7 @@ public class TestIgnoreCatalogs extends TestDb {
         }
     }
 
-    public void canUseSettingInUrl() throws Exception {
+    private void canUseSettingInUrl() throws Exception {
         try (Connection conn = getConnection("ignoreCatalogs;MODE=MSSQLSERVER;IGNORE_CATALOGS=TRUE;")) {
             try (Statement stat = conn.createStatement()) {
                 prepareDb(stat);
@@ -121,7 +121,7 @@ public class TestIgnoreCatalogs extends TestDb {
 
     }
 
-    public void canUseSetterSyntax() throws Exception {
+    private void canUseSetterSyntax() throws Exception {
         try (Connection conn = getConnection("ignoreCatalogs;MODE=MSSQLSERVER;")) {
             try (Statement stat = conn.createStatement()) {
                 prepareDb(stat);
@@ -137,7 +137,7 @@ public class TestIgnoreCatalogs extends TestDb {
         }
     }
 
-    public void canCatalogNameEqualSchemaName() throws Exception {
+    private void canCatalogNameEqualSchemaName() throws Exception {
         try (Connection conn = getConnection("ignoreCatalogs;MODE=MSSQLSERVER;")) {
             try (Statement stat = conn.createStatement()) {
                 prepareDb(stat);
@@ -153,7 +153,7 @@ public class TestIgnoreCatalogs extends TestDb {
         }
     }
 
-    public void canYetIdentifyWrongCatalogName() throws Exception {
+    private void canYetIdentifyWrongCatalogName() throws Exception {
         try (Connection conn = getConnection("ignoreCatalogs;MODE=MSSQLSERVER;")) {
             try (Statement stat = conn.createStatement()) {
                 prepareDb(stat);
@@ -162,13 +162,14 @@ public class TestIgnoreCatalogs extends TestDb {
                 // schema test_x not found error
                 assertThrows(ErrorCode.SCHEMA_NOT_FOUND_1, stat,
                         "create table test_x.dbo.test(id int primary key, name varchar(255))");
+                assertThrows(ErrorCode.DATABASE_NOT_FOUND_1, stat, "comment on column db..test.id is 'id'");
             }
         } finally {
             deleteDb("ignoreCatalogs");
         }
     }
 
-    public void canUseCatalogAtIndexName() throws Exception {
+    private void canUseCatalogAtIndexName() throws Exception {
         try (Connection conn = getConnection("ignoreCatalogs;MODE=MSSQLSERVER;")) {
             try (Statement stat = conn.createStatement()) {
                 prepareDb(stat);
@@ -187,8 +188,7 @@ public class TestIgnoreCatalogs extends TestDb {
         }
     }
 
-
-    public void canAllCombined() throws SQLException {
+    private void canAllCombined() throws SQLException {
         try (Connection conn = getConnection("ignoreCatalogs;MODE=MSSQLSERVER;IGNORE_CATALOGS=TRUE;")) {
             try (Statement stat = conn.createStatement()) {
                 prepareDbAndSetDefaultSchema(stat);

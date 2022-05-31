@@ -1,21 +1,20 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2022 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.tools;
 
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -25,8 +24,8 @@ import java.sql.Types;
 import java.util.ArrayList;
 import org.h2.api.ErrorCode;
 import org.h2.engine.Constants;
-import org.h2.engine.SysProperties;
 import org.h2.message.DbException;
+import org.h2.mvstore.DataUtils;
 import org.h2.store.fs.FileUtils;
 import org.h2.util.IOUtils;
 import org.h2.util.JdbcUtils;
@@ -53,11 +52,11 @@ public class Csv implements SimpleRowSource {
     private boolean preserveWhitespace;
     private boolean writeColumnHeader = true;
     private char lineComment;
-    private String lineSeparator = SysProperties.LINE_SEPARATOR;
+    private String lineSeparator = System.lineSeparator();
     private String nullString = "";
 
     private String fileName;
-    private Reader input;
+    private BufferedReader input;
     private char[] inputBuffer;
     private int inputBufferPos;
     private int inputBufferStart = -1;
@@ -71,10 +70,8 @@ public class Csv implements SimpleRowSource {
             ResultSetMetaData meta = rs.getMetaData();
             int columnCount = meta.getColumnCount();
             String[] row = new String[columnCount];
-            int[] sqlTypes = new int[columnCount];
             for (int i = 0; i < columnCount; i++) {
                 row[i] = meta.getColumnLabel(i + 1);
-                sqlTypes[i] = meta.getColumnType(i + 1);
             }
             if (writeColumnHeader) {
                 writeRow(row);
@@ -102,6 +99,7 @@ public class Csv implements SimpleRowSource {
      * @param writer the writer
      * @param rs the result set
      * @return the number of rows written
+     * @throws SQLException on failure
      */
     public int write(Writer writer, ResultSet rs) throws SQLException {
         this.output = writer;
@@ -123,6 +121,7 @@ public class Csv implements SimpleRowSource {
      *          first row.
      * @param charset the charset or null to use the system default charset
      * @return the number of rows written
+     * @throws SQLException on failure
      */
     public int write(String outputFileName, ResultSet rs, String charset)
             throws SQLException {
@@ -144,6 +143,7 @@ public class Csv implements SimpleRowSource {
      * @param charset the charset or null to use the system default charset
      *          (see system property file.encoding)
      * @return the number of rows written
+     * @throws SQLException on failure
      */
     public int write(Connection conn, String outputFileName, String sql,
             String charset) throws SQLException {
@@ -158,7 +158,7 @@ public class Csv implements SimpleRowSource {
      * Reads from the CSV file and returns a result set. The rows in the result
      * set are created on demand, that means the file is kept open until all
      * rows are read or the result set is closed.
-     * <br />
+     *
      * If the columns are read from the CSV file, then the following rules are
      * used: columns names that start with a letter or '_', and only
      * contain letters, '_', and digits, are considered case insensitive
@@ -170,6 +170,7 @@ public class Csv implements SimpleRowSource {
      *          file
      * @param charset the charset or null to use the system default charset
      * @return the result set
+     * @throws SQLException on failure
      */
     public ResultSet read(String inputFileName, String[] colNames,
             String charset) throws SQLException {
@@ -190,10 +191,12 @@ public class Csv implements SimpleRowSource {
      * @param colNames or null if the column names should be read from the CSV
      *            file
      * @return the result set
+     * @throws IOException on failure
      */
     public ResultSet read(Reader reader, String[] colNames) throws IOException {
         init(null, null);
-        this.input = reader;
+        this.input = reader instanceof BufferedReader ? (BufferedReader) reader
+                : new BufferedReader(reader, Constants.IO_BUFFER_SIZE);
         return readResultSet(colNames);
     }
 
@@ -242,7 +245,7 @@ public class Csv implements SimpleRowSource {
                         new OutputStreamWriter(out, characterSet) : new OutputStreamWriter(out));
             } catch (Exception e) {
                 close();
-                throw DbException.convertToIOException(e);
+                throw DataUtils.convertToIOException(e);
             }
         }
     }
@@ -295,16 +298,12 @@ public class Csv implements SimpleRowSource {
     private void initRead() throws IOException {
         if (input == null) {
             try {
-                InputStream in = FileUtils.newInputStream(fileName);
-                in = new BufferedInputStream(in, Constants.IO_BUFFER_SIZE);
-                input = characterSet != null ? new InputStreamReader(in, characterSet) : new InputStreamReader(in);
+                input = FileUtils.newBufferedReader(fileName,
+                        characterSet != null ? Charset.forName(characterSet) : StandardCharsets.UTF_8);
             } catch (IOException e) {
                 close();
                 throw e;
             }
-        }
-        if (!input.markSupported()) {
-            input = new BufferedReader(input);
         }
         input.mark(1);
         int bom = input.read();

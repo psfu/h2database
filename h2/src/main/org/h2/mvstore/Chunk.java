@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2022 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -7,17 +7,23 @@ package org.h2.mvstore;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
+import java.util.BitSet;
+import java.util.Comparator;
+import java.util.Map;
+
+import org.h2.util.StringUtils;
 
 /**
  * A chunk of data, containing one or multiple pages.
  * <p>
- * Chunks are page aligned (each page is usually 4096 bytes).
+ * Minimum chunk size is usually 4096 bytes, and it grows in those fixed increments (blocks).
+ * Chunk's length and it's position in the underlying filestore
+ * are multiples of that increment (block size),
+ * therefore they both are measured in blocks, instead of bytes.
  * There are at most 67 million (2^26) chunks,
- * each chunk is at most 2 GB large.
+ * and each chunk is at most 2 GB large.
  */
-public class Chunk
-{
+public final class Chunk {
 
     /**
      * The maximum chunk id.
@@ -51,6 +57,8 @@ public class Chunk
     private static final String ATTR_UNUSED = "unused";
     private static final String ATTR_UNUSED_AT_VERSION = "unusedAtVersion";
     private static final String ATTR_PIN_COUNT = "pinCount";
+    private static final String ATTR_TOC = "toc";
+    private static final String ATTR_OCCUPANCY = "occupancy";
     private static final String ATTR_FLETCHER = "fletcher";
 
     /**
@@ -74,9 +82,24 @@ public class Chunk
     int pageCount;
 
     /**
-     * The number of pages still alive.
+     * The number of pages that are still alive in the latest version of the store.
      */
     int pageCountLive;
+
+    /**
+     * Offset (from the beginning of the chunk) for the table of content.
+     * Table of content is holding a value of type "long" for each page in the chunk.
+     * This value consists of map id, page offset, page length and page type.
+     * Format is the same as page's position id, but with map id replacing chunk id.
+     *
+     * @see DataUtils#getTocElement(int, int, int, int) for field format details
+     */
+    int tocPos;
+
+    /**
+     * Collection of "deleted" flags for all pages in the chunk.
+     */
+    BitSet occupancy;
 
     /**
      * The sum of the max length of all pages.
@@ -84,7 +107,7 @@ public class Chunk
     public long maxLen;
 
     /**
-     * The sum of the max length of all pages that are in use.
+     * The sum of the length of all pages that are still alive.
      */
     public long maxLenLive;
 
@@ -95,9 +118,9 @@ public class Chunk
     int collectPriority;
 
     /**
-     * The position of the meta root.
+     * The position of the root of layout map.
      */
-    long metaRootPos;
+    long layoutRootPos;
 
     /**
      * The version stored in this chunk.
@@ -138,8 +161,52 @@ public class Chunk
     private int pinCount;
 
 
+    private Chunk(String s) {
+        this(DataUtils.parseMap(s), true);
+    }
+
+    Chunk(Map<String, String> map) {
+        this(map, false);
+    }
+
+    private Chunk(Map<String, String> map, boolean full) {
+        this(DataUtils.readHexInt(map, ATTR_CHUNK, 0));
+        block = DataUtils.readHexLong(map, ATTR_BLOCK, 0);
+        version = DataUtils.readHexLong(map, ATTR_VERSION, id);
+        if (full) {
+            len = DataUtils.readHexInt(map, ATTR_LEN, 0);
+            pageCount = DataUtils.readHexInt(map, ATTR_PAGES, 0);
+            pageCountLive = DataUtils.readHexInt(map, ATTR_LIVE_PAGES, pageCount);
+            mapId = DataUtils.readHexInt(map, ATTR_MAP, 0);
+            maxLen = DataUtils.readHexLong(map, ATTR_MAX, 0);
+            maxLenLive = DataUtils.readHexLong(map, ATTR_LIVE_MAX, maxLen);
+            layoutRootPos = DataUtils.readHexLong(map, ATTR_ROOT, 0);
+            time = DataUtils.readHexLong(map, ATTR_TIME, 0);
+            unused = DataUtils.readHexLong(map, ATTR_UNUSED, 0);
+            unusedAtVersion = DataUtils.readHexLong(map, ATTR_UNUSED_AT_VERSION, 0);
+            next = DataUtils.readHexLong(map, ATTR_NEXT, 0);
+            pinCount = DataUtils.readHexInt(map, ATTR_PIN_COUNT, 0);
+            tocPos = DataUtils.readHexInt(map, ATTR_TOC, 0);
+            byte[] bytes = DataUtils.parseHexBytes(map, ATTR_OCCUPANCY);
+            if (bytes == null) {
+                occupancy = new BitSet();
+            } else {
+                occupancy = BitSet.valueOf(bytes);
+                if (pageCount - pageCountLive != occupancy.cardinality()) {
+                    throw DataUtils.newMVStoreException(
+                            DataUtils.ERROR_FILE_CORRUPT, "Inconsistent occupancy info {0} - {1} != {2} {3}",
+                            pageCount, pageCountLive, occupancy.cardinality(), this);
+                }
+            }
+        }
+    }
+
     Chunk(int id) {
         this.id = id;
+        if (id <=  0) {
+            throw DataUtils.newMVStoreException(
+                    DataUtils.ERROR_FILE_CORRUPT, "Invalid chunk id {0}", id);
+        }
     }
 
     /**
@@ -164,11 +231,11 @@ public class Chunk
             }
         } catch (Exception e) {
             // there could be various reasons
-            throw DataUtils.newIllegalStateException(
+            throw DataUtils.newMVStoreException(
                     DataUtils.ERROR_FILE_CORRUPT,
                     "File corrupt reading chunk at position {0}", start, e);
         }
-        throw DataUtils.newIllegalStateException(
+        throw DataUtils.newMVStoreException(
                 DataUtils.ERROR_FILE_CORRUPT,
                 "File corrupt reading chunk at position {0}", start);
     }
@@ -186,7 +253,7 @@ public class Chunk
             buff.put((byte) ' ');
         }
         if (minLength != 0 && buff.position() > delimiterPosition) {
-            throw DataUtils.newIllegalStateException(
+            throw DataUtils.newMVStoreException(
                     DataUtils.ERROR_INTERNAL,
                     "Chunk metadata too long");
         }
@@ -210,24 +277,7 @@ public class Chunk
      * @return the block
      */
     public static Chunk fromString(String s) {
-        HashMap<String, String> map = DataUtils.parseMap(s);
-        int id = DataUtils.readHexInt(map, ATTR_CHUNK, 0);
-        Chunk c = new Chunk(id);
-        c.block = DataUtils.readHexLong(map, ATTR_BLOCK, 0);
-        c.len = DataUtils.readHexInt(map, ATTR_LEN, 0);
-        c.pageCount = DataUtils.readHexInt(map, ATTR_PAGES, 0);
-        c.pageCountLive = DataUtils.readHexInt(map, ATTR_LIVE_PAGES, c.pageCount);
-        c.mapId = DataUtils.readHexInt(map, ATTR_MAP, 0);
-        c.maxLen = DataUtils.readHexLong(map, ATTR_MAX, 0);
-        c.maxLenLive = DataUtils.readHexLong(map, ATTR_LIVE_MAX, c.maxLen);
-        c.metaRootPos = DataUtils.readHexLong(map, ATTR_ROOT, 0);
-        c.time = DataUtils.readHexLong(map, ATTR_TIME, 0);
-        c.unused = DataUtils.readHexLong(map, ATTR_UNUSED, 0);
-        c.unusedAtVersion = DataUtils.readHexLong(map, ATTR_UNUSED_AT_VERSION, 0);
-        c.version = DataUtils.readHexLong(map, ATTR_VERSION, id);
-        c.next = DataUtils.readHexLong(map, ATTR_NEXT, 0);
-        c.pinCount = DataUtils.readHexInt(map, ATTR_PIN_COUNT, 0);
-        return c;
+        return new Chunk(s);
     }
 
     /**
@@ -277,7 +327,7 @@ public class Chunk
             DataUtils.appendMap(buff, ATTR_NEXT, next);
         }
         DataUtils.appendMap(buff, ATTR_PAGES, pageCount);
-        DataUtils.appendMap(buff, ATTR_ROOT, metaRootPos);
+        DataUtils.appendMap(buff, ATTR_ROOT, layoutRootPos);
         DataUtils.appendMap(buff, ATTR_TIME, time);
         if (unused != 0) {
             DataUtils.appendMap(buff, ATTR_UNUSED, unused);
@@ -286,7 +336,16 @@ public class Chunk
             DataUtils.appendMap(buff, ATTR_UNUSED_AT_VERSION, unusedAtVersion);
         }
         DataUtils.appendMap(buff, ATTR_VERSION, version);
-        DataUtils.appendMap(buff, ATTR_PIN_COUNT, pinCount);
+        if (pinCount > 0) {
+            DataUtils.appendMap(buff, ATTR_PIN_COUNT, pinCount);
+        }
+        if (tocPos > 0) {
+            DataUtils.appendMap(buff, ATTR_TOC, tocPos);
+        }
+        if (!occupancy.isEmpty()) {
+            DataUtils.appendMap(buff, ATTR_OCCUPANCY,
+                    StringUtils.convertBytesToHex(occupancy.toByteArray()));
+        }
         return buff.toString();
     }
 
@@ -328,20 +387,20 @@ public class Chunk
      * Read a page of data into a ByteBuffer.
      *
      * @param fileStore to use
+     * @param offset of the page data
      * @param pos page pos
-     * @param expectedMapId expected map id for the page
      * @return ByteBuffer containing page data.
      */
-    ByteBuffer readBufferForPage(FileStore fileStore, long pos, int expectedMapId) {
+    ByteBuffer readBufferForPage(FileStore fileStore, int offset, long pos) {
         assert isSaved() : this;
         while (true) {
             long originalBlock = block;
             try {
                 long filePos = originalBlock * MVStore.BLOCK_SIZE;
-                long maxPos = filePos + len * MVStore.BLOCK_SIZE;
-                filePos += DataUtils.getPageOffset(pos);
+                long maxPos = filePos + (long) len * MVStore.BLOCK_SIZE;
+                filePos += offset;
                 if (filePos < 0) {
-                    throw DataUtils.newIllegalStateException(
+                    throw DataUtils.newMVStoreException(
                             DataUtils.ERROR_FILE_CORRUPT,
                             "Negative position {0}; p={1}, c={2}", filePos, pos, toString());
                 }
@@ -350,45 +409,43 @@ public class Chunk
                 if (length == DataUtils.PAGE_LARGE) {
                     // read the first bytes to figure out actual length
                     length = fileStore.readFully(filePos, 128).getInt();
+                    // pageNo is deliberately not included into length to preserve compatibility
+                    // TODO: remove this adjustment when page on disk format is re-organized
+                    length += 4;
                 }
                 length = (int) Math.min(maxPos - filePos, length);
                 if (length < 0) {
-                    throw DataUtils.newIllegalStateException(DataUtils.ERROR_FILE_CORRUPT,
+                    throw DataUtils.newMVStoreException(DataUtils.ERROR_FILE_CORRUPT,
                             "Illegal page length {0} reading at {1}; max pos {2} ", length, filePos, maxPos);
                 }
 
                 ByteBuffer buff = fileStore.readFully(filePos, length);
 
-                int offset = DataUtils.getPageOffset(pos);
-                int start = buff.position();
-                int remaining = buff.remaining();
-                int pageLength = buff.getInt();
-                if (pageLength > remaining || pageLength < 4) {
-                    throw DataUtils.newIllegalStateException(DataUtils.ERROR_FILE_CORRUPT,
-                            "File corrupted in chunk {0}, expected page length 4..{1}, got {2}", id, remaining,
-                            pageLength);
-                }
-                buff.limit(start + pageLength);
-
-                short check = buff.getShort();
-                int checkTest = DataUtils.getCheckValue(id)
-                        ^ DataUtils.getCheckValue(offset)
-                        ^ DataUtils.getCheckValue(pageLength);
-                if (check != (short) checkTest) {
-                    throw DataUtils.newIllegalStateException(DataUtils.ERROR_FILE_CORRUPT,
-                            "File corrupted in chunk {0}, expected check value {1}, got {2}", id, checkTest, check);
-                }
-
-                int mapId = DataUtils.readVarInt(buff);
-                if (mapId != expectedMapId) {
-                    throw DataUtils.newIllegalStateException(DataUtils.ERROR_FILE_CORRUPT,
-                            "File corrupted in chunk {0}, expected map id {1}, got {2}", id, expectedMapId, mapId);
-                }
-
                 if (originalBlock == block) {
                     return buff;
                 }
-            } catch (IllegalStateException ex) {
+            } catch (MVStoreException ex) {
+                if (originalBlock == block) {
+                    throw ex;
+                }
+            }
+        }
+    }
+
+    long[] readToC(FileStore fileStore) {
+        assert isSaved() : this;
+        assert tocPos > 0;
+        while (true) {
+            long originalBlock = block;
+            try {
+                long filePos = originalBlock * MVStore.BLOCK_SIZE + tocPos;
+                int length = pageCount * 8;
+                long[] toc = new long[pageCount];
+                fileStore.readFully(filePos, length).asLongBuffer().get(toc);
+                if (originalBlock == block) {
+                    return toc;
+                }
+            } catch (MVStoreException ex) {
                 if (originalBlock == block) {
                     throw ex;
                 }
@@ -399,14 +456,12 @@ public class Chunk
     /**
      * Modifies internal state to reflect the fact that one more page is stored
      * within this chunk.
-     *
-     * @param pageLengthOnDisk
+     *  @param pageLengthOnDisk
      *            size of the page
      * @param singleWriter
      *            indicates whether page belongs to append mode capable map
      *            (single writer map). Such pages are "pinned" to the chunk,
      *            they can't be evacuated (moved to a different chunk) while
-     *            on-line, but they assumed to be short-lived anyway.
      */
     void accountForWrittenPage(int pageLengthOnDisk, boolean singleWriter) {
         maxLen += pageLengthOnDisk;
@@ -416,12 +471,16 @@ public class Chunk
         if (singleWriter) {
             pinCount++;
         }
+        assert pageCount - pageCountLive == occupancy.cardinality()
+                : pageCount + " - " + pageCountLive + " <> " + occupancy.cardinality() + " : " + occupancy;
     }
 
     /**
      * Modifies internal state to reflect the fact that one the pages within
      * this chunk was removed from the map.
      *
+     * @param pageNo
+     *            sequential page number within the chunk
      * @param pageLength
      *            on disk of the removed page
      * @param pinned
@@ -434,8 +493,18 @@ public class Chunk
      * @return true if all of the pages, this chunk contains, were already
      *         removed, and false otherwise
      */
-    boolean accountForRemovedPage(int pageLength, boolean pinned, long now, long version) {
+    boolean accountForRemovedPage(int pageNo, int pageLength, boolean pinned, long now, long version) {
         assert isSaved() : this;
+        // legacy chunks do not have a table of content,
+        // therefore pageNo is not valid, skip
+        if (tocPos > 0) {
+            assert pageNo >= 0 && pageNo < pageCount : pageNo + " // " +  pageCount;
+            assert !occupancy.get(pageNo) : pageNo + " " + this + " " + occupancy;
+            assert pageCount - pageCountLive == occupancy.cardinality()
+                    : pageCount + " - " + pageCountLive + " <> " + occupancy.cardinality() + " : " + occupancy;
+            occupancy.set(pageNo);
+        }
+
         maxLenLive -= pageLength;
         pageCountLive--;
         if (pinned) {
@@ -453,7 +522,6 @@ public class Chunk
         assert (pageCountLive == 0) == (maxLenLive == 0) : this;
 
         if (!isLive()) {
-            assert isEvacuatable() : this;
             unused = now;
             return true;
         }
@@ -463,6 +531,18 @@ public class Chunk
     @Override
     public String toString() {
         return asString();
+    }
+
+
+    public static final class PositionComparator implements Comparator<Chunk> {
+        public static final Comparator<Chunk> INSTANCE = new PositionComparator();
+
+        private PositionComparator() {}
+
+        @Override
+        public int compare(Chunk one, Chunk two) {
+            return Long.compare(one.block, two.block);
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2022 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -15,27 +15,18 @@ public class Constants {
     /**
      * The build date is updated for each public release.
      */
-    public static final String BUILD_DATE = "2019-03-13";
+    public static final String BUILD_DATE = "2022-04-09";
 
     /**
-     * The build date of the last stable release.
+     * Sequential version number. Even numbers are used for official releases,
+     * odd numbers are used for development builds.
      */
-    public static final String BUILD_DATE_STABLE = "2018-03-18";
-
-    /**
-     * The build id is incremented for each public release.
-     */
-    public static final int BUILD_ID = 199;
-
-    /**
-     * The build id of the last stable release.
-     */
-    public static final int BUILD_ID_STABLE = 197;
+    public static final int BUILD_ID = 219;
 
     /**
      * Whether this is a snapshot version.
      */
-    public static final boolean BUILD_SNAPSHOT = false;
+    public static final boolean BUILD_SNAPSHOT = true;
 
     /**
      * If H2 is compiled to be included in a product, this should be set to
@@ -44,54 +35,6 @@ public class Constants {
      * Example: ACME_SVN1651_BUILD3
      */
     public static final String BUILD_VENDOR_AND_VERSION = null;
-
-    /**
-     * The TCP protocol version number 9.
-     * @since 1.3.158 (2011-07-17)
-     */
-    public static final int TCP_PROTOCOL_VERSION_9 = 9;
-
-    /**
-     * The TCP protocol version number 10.
-     * @since 1.3.162 (2011-11-26)
-     */
-    public static final int TCP_PROTOCOL_VERSION_10 = 10;
-
-    /**
-     * The TCP protocol version number 11.
-     * @since 1.3.163 (2011-12-30)
-     */
-    public static final int TCP_PROTOCOL_VERSION_11 = 11;
-
-    /**
-     * The TCP protocol version number 12.
-     * @since 1.3.168 (2012-07-13)
-     */
-    public static final int TCP_PROTOCOL_VERSION_12 = 12;
-
-    /**
-     * The TCP protocol version number 13.
-     * @since 1.3.174 (2013-10-19)
-     */
-    public static final int TCP_PROTOCOL_VERSION_13 = 13;
-
-    /**
-     * The TCP protocol version number 14.
-     * @since 1.3.176 (2014-04-05)
-     */
-    public static final int TCP_PROTOCOL_VERSION_14 = 14;
-
-    /**
-     * The TCP protocol version number 15.
-     * @since 1.4.178 Beta (2014-05-02)
-     */
-    public static final int TCP_PROTOCOL_VERSION_15 = 15;
-
-    /**
-     * The TCP protocol version number 16.
-     * @since 1.4.194 (2017-03-10)
-     */
-    public static final int TCP_PROTOCOL_VERSION_16 = 16;
 
     /**
      * The TCP protocol version number 17.
@@ -106,24 +49,36 @@ public class Constants {
     public static final int TCP_PROTOCOL_VERSION_18 = 18;
 
     /**
+     * The TCP protocol version number 19.
+     * @since 1.4.200 (2019-10-14)
+     */
+    public static final int TCP_PROTOCOL_VERSION_19 = 19;
+
+    /**
+     * The TCP protocol version number 20.
+     * @since 2.0.202 (2021-11-25)
+     */
+    public static final int TCP_PROTOCOL_VERSION_20 = 20;
+
+    /**
      * Minimum supported version of TCP protocol.
      */
-    public static final int TCP_PROTOCOL_VERSION_MIN_SUPPORTED = TCP_PROTOCOL_VERSION_9;
+    public static final int TCP_PROTOCOL_VERSION_MIN_SUPPORTED = TCP_PROTOCOL_VERSION_17;
 
     /**
      * Maximum supported version of TCP protocol.
      */
-    public static final int TCP_PROTOCOL_VERSION_MAX_SUPPORTED = TCP_PROTOCOL_VERSION_18;
+    public static final int TCP_PROTOCOL_VERSION_MAX_SUPPORTED = TCP_PROTOCOL_VERSION_20;
 
     /**
      * The major version of this database.
      */
-    public static final int VERSION_MAJOR = 1;
+    public static final int VERSION_MAJOR = 2;
 
     /**
      * The minor version of this database.
      */
-    public static final int VERSION_MINOR = 4;
+    public static final int VERSION_MINOR = 2;
 
     /**
      * The lock mode that means no locking is used at all.
@@ -166,6 +121,11 @@ public class Constants {
     public static final int ALLOW_LITERALS_NUMBERS = 1;
 
     /**
+     * SNAPSHOT isolation level of transaction.
+     */
+    public static final int TRANSACTION_SNAPSHOT = 6;
+
+    /**
      * Whether searching in Blob values should be supported.
      */
     public static final boolean BLOB_SEARCH = false;
@@ -174,11 +134,6 @@ public class Constants {
      * The minimum number of entries to keep in the cache.
      */
     public static final int CACHE_MIN_RECORDS = 16;
-
-    /**
-     * The default cache size in KB for each GB of RAM.
-     */
-    public static final int CACHE_SIZE_DEFAULT = 64 * 1024;
 
     /**
      * The default cache type.
@@ -237,16 +192,6 @@ public class Constants {
      * itself, and not in a separate place.
      */
     public static final int DEFAULT_MAX_LENGTH_INPLACE_LOB = 256;
-
-    /**
-     * The default value for the maximum transaction log size.
-     */
-    public static final long DEFAULT_MAX_LOG_SIZE = 16 * 1024 * 1024;
-
-    /**
-     * The default value for the MAX_MEMORY_UNDO setting.
-     */
-    public static final int DEFAULT_MAX_MEMORY_UNDO = 50_000;
 
     /**
      * The default for the setting MAX_OPERATION_MEMORY.
@@ -310,19 +255,38 @@ public class Constants {
     public static final int LOCK_SLEEP = 1000;
 
     /**
+     * The maximum allowed length of identifiers.
+     */
+    public static final int MAX_IDENTIFIER_LENGTH = 256;
+
+    /**
+     * The maximum number of columns in a table, select statement or row value.
+     */
+    public static final int MAX_COLUMNS = 16_384;
+
+    /**
+     * The maximum allowed length for character string, binary string, and other
+     * data types based on them; excluding LOB data types.
+     * <p>
+     * This needs to be less than (2^31-8)/2 to avoid running into the limit on
+     * encoding data fields when storing rows.
+     */
+    public static final int MAX_STRING_LENGTH = 1000_000_000;
+
+    /**
+     * The maximum allowed precision of numeric data types.
+     */
+    public static final int MAX_NUMERIC_PRECISION = 100_000;
+
+    /**
+     * The maximum allowed cardinality of array.
+     */
+    public static final int MAX_ARRAY_CARDINALITY = 65_536;
+
+    /**
      * The highest possible parameter index.
      */
     public static final int MAX_PARAMETER_INDEX = 100_000;
-
-    /**
-     * The memory needed by a object of class Data
-     */
-    public static final int MEMORY_DATA = 24;
-
-    /**
-     * This value is used to calculate the average memory usage.
-     */
-    public static final int MEMORY_FACTOR = 64;
 
     /**
      * The memory needed by a regular object with at least one field.
@@ -337,23 +301,6 @@ public class Constants {
     public static final int MEMORY_ARRAY = 24;
 
     /**
-     * The memory needed by an object of class PageBtree.
-     */
-    public static final int MEMORY_PAGE_BTREE =
-            112 + MEMORY_DATA + 2 * MEMORY_OBJECT;
-
-    /**
-     * The memory needed by an object of class PageData.
-     */
-    public static final int MEMORY_PAGE_DATA =
-            144 + MEMORY_DATA + 3 * MEMORY_OBJECT;
-
-    /**
-     * The memory needed by an object of class PageDataOverflow.
-     */
-    public static final int MEMORY_PAGE_DATA_OVERFLOW = 96 + MEMORY_DATA;
-
-    /**
      * The memory needed by a pointer.
      */
     // Java 6, 64 bit: 8
@@ -364,11 +311,6 @@ public class Constants {
      * The memory needed by a Row.
      */
     public static final int MEMORY_ROW = 40;
-
-    /**
-     * The minimum write delay that causes commits to be delayed.
-     */
-    public static final int MIN_WRITE_DELAY = 5;
 
     /**
      * The name prefix used for indexes that are not explicitly named.
@@ -417,6 +359,16 @@ public class Constants {
     public static final String SCHEMA_MAIN = "PUBLIC";
 
     /**
+     * The identity of pg_catalog schema.
+     */
+    public static final int PG_CATALOG_SCHEMA_ID = -1_000;
+
+    /**
+     * The name of the pg_catalog schema.
+     */
+    public static final String SCHEMA_PG_CATALOG = "PG_CATALOG";
+
+    /**
      * The default selectivity (used if the selectivity is not calculated).
      */
     public static final int SELECTIVITY_DEFAULT = 50;
@@ -449,22 +401,6 @@ public class Constants {
     public static final String START_URL = "jdbc:h2:";
 
     /**
-     * The file name suffix of all database files.
-     */
-    public static final String SUFFIX_DB_FILE = ".db";
-
-    /**
-     * The file name suffix of large object files.
-     */
-    public static final String SUFFIX_LOB_FILE = ".lob.db";
-
-    /**
-     * The suffix of the directory name used if LOB objects are stored in a
-     * directory.
-     */
-    public static final String SUFFIX_LOBS_DIRECTORY = ".lobs.db";
-
-    /**
      * The file name suffix of file lock files that are used to make sure a
      * database is open by only one process at any time.
      */
@@ -475,10 +411,6 @@ public class Constants {
      */
     public static final String SUFFIX_OLD_DATABASE_FILE = ".data.db";
 
-    /**
-     * The file name suffix of page files.
-     */
-    public static final String SUFFIX_PAGE_FILE = ".h2.db";
     /**
      * The file name suffix of a MVStore file.
      */
@@ -510,11 +442,6 @@ public class Constants {
      * THROTTLE has been used.
      */
     public static final int THROTTLE_DELAY = 50;
-
-    /**
-     * The maximum size of an undo log block.
-     */
-    public static final int UNDO_BLOCK_SIZE = 1024 * 1024;
 
     /**
      * The database URL format in simplified Backus-Naur form.
@@ -555,11 +482,6 @@ public class Constants {
      * version, and build id.
      */
     public static final String VERSION;
-
-    /**
-     * The last stable version name.
-     */
-    public static final String VERSION_STABLE = "1.4." + BUILD_ID_STABLE;
 
     /**
      * The complete version number of this database, consisting of

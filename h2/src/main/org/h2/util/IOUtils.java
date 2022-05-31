@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2022 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -10,6 +10,7 @@ import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -22,7 +23,7 @@ import java.nio.charset.StandardCharsets;
 
 import org.h2.engine.Constants;
 import org.h2.engine.SysProperties;
-import org.h2.message.DbException;
+import org.h2.mvstore.DataUtils;
 import org.h2.store.fs.FileUtils;
 
 /**
@@ -69,7 +70,7 @@ public class IOUtils {
                 skip -= skipped;
             }
         } catch (Exception e) {
-            throw DbException.convertToIOException(e);
+            throw DataUtils.convertToIOException(e);
         }
     }
 
@@ -92,7 +93,7 @@ public class IOUtils {
                 skip -= skipped;
             }
         } catch (Exception e) {
-            throw DbException.convertToIOException(e);
+            throw DataUtils.convertToIOException(e);
         }
     }
 
@@ -103,6 +104,7 @@ public class IOUtils {
      * @param in the input stream
      * @param out the output stream
      * @return the number of bytes copied
+     * @throws IOException on failure
      */
     public static long copyAndClose(InputStream in, OutputStream out)
             throws IOException {
@@ -111,7 +113,7 @@ public class IOUtils {
             out.close();
             return len;
         } catch (Exception e) {
-            throw DbException.convertToIOException(e);
+            throw DataUtils.convertToIOException(e);
         } finally {
             closeSilently(out);
         }
@@ -124,13 +126,14 @@ public class IOUtils {
      * @param in the input stream
      * @param out the output stream (null if writing is not required)
      * @return the number of bytes copied
+     * @throws IOException on failure
      */
     public static long copyAndCloseInput(InputStream in, OutputStream out)
             throws IOException {
         try {
             return copy(in, out);
         } catch (Exception e) {
-            throw DbException.convertToIOException(e);
+            throw DataUtils.convertToIOException(e);
         } finally {
             closeSilently(in);
         }
@@ -143,6 +146,7 @@ public class IOUtils {
      * @param in the input stream
      * @param out the output stream (null if writing is not required)
      * @return the number of bytes copied
+     * @throws IOException on failure
      */
     public static long copy(InputStream in, OutputStream out)
             throws IOException {
@@ -157,6 +161,7 @@ public class IOUtils {
      * @param out the output stream (null if writing is not required)
      * @param length the maximum number of bytes to copy
      * @return the number of bytes copied
+     * @throws IOException on failure
      */
     public static long copy(InputStream in, OutputStream out, long length)
             throws IOException {
@@ -178,7 +183,7 @@ public class IOUtils {
             }
             return copied;
         } catch (Exception e) {
-            throw DbException.convertToIOException(e);
+            throw DataUtils.convertToIOException(e);
         }
     }
 
@@ -190,6 +195,7 @@ public class IOUtils {
      * @param out the writer (null if writing is not required)
      * @param length the maximum number of bytes to copy
      * @return the number of characters copied
+     * @throws IOException on failure
      */
     public static long copyAndCloseInput(Reader in, Writer out, long length)
             throws IOException {
@@ -205,13 +211,13 @@ public class IOUtils {
                 if (out != null) {
                     out.write(buffer, 0, len);
                 }
+                copied += len;
                 length -= len;
                 len = (int) Math.min(length, Constants.IO_BUFFER_SIZE);
-                copied += len;
             }
             return copied;
         } catch (Exception e) {
-            throw DbException.convertToIOException(e);
+            throw DataUtils.convertToIOException(e);
         } finally {
             in.close();
         }
@@ -224,6 +230,7 @@ public class IOUtils {
      * @param length the maximum number of bytes to read, or -1 to read until
      *            the end of file
      * @return the bytes read
+     * @throws IOException on failure
      */
     public static byte[] readBytesAndClose(InputStream in, int length)
             throws IOException {
@@ -236,7 +243,7 @@ public class IOUtils {
             copy(in, out, length);
             return out.toByteArray();
         } catch (Exception e) {
-            throw DbException.convertToIOException(e);
+            throw DataUtils.convertToIOException(e);
         } finally {
             in.close();
         }
@@ -249,6 +256,7 @@ public class IOUtils {
      * @param length the maximum number of characters to read, or -1 to read
      *            until the end of file
      * @return the string read
+     * @throws IOException on failure
      */
     public static String readStringAndClose(Reader in, int length)
             throws IOException {
@@ -274,6 +282,7 @@ public class IOUtils {
      * @param buffer the output buffer
      * @param max the number of bytes to read at most
      * @return the number of bytes read, 0 meaning EOF
+     * @throws IOException on failure
      */
     public static int readFully(InputStream in, byte[] buffer, int max)
             throws IOException {
@@ -289,7 +298,7 @@ public class IOUtils {
             }
             return result;
         } catch (Exception e) {
-            throw DbException.convertToIOException(e);
+            throw DataUtils.convertToIOException(e);
         }
     }
 
@@ -302,6 +311,7 @@ public class IOUtils {
      * @param buffer the output buffer
      * @param max the number of characters to read at most
      * @return the number of characters read, 0 meaning EOF
+     * @throws IOException on failure
      */
     public static int readFully(Reader in, char[] buffer, int max)
             throws IOException {
@@ -317,22 +327,8 @@ public class IOUtils {
             }
             return result;
         } catch (Exception e) {
-            throw DbException.convertToIOException(e);
+            throw DataUtils.convertToIOException(e);
         }
-    }
-
-    /**
-     * Create a buffered reader to read from an input stream using the UTF-8
-     * format. If the input stream is null, this method returns null. The
-     * InputStreamReader that is used here is not exact, that means it may read
-     * some additional bytes when buffering.
-     *
-     * @param in the input stream or null
-     * @return the reader
-     */
-    public static Reader getBufferedReader(InputStream in) {
-        return in == null ? null : new BufferedReader(
-                new InputStreamReader(in, StandardCharsets.UTF_8));
     }
 
     /**
@@ -406,11 +402,22 @@ public class IOUtils {
      *
      * @param original the original file name
      * @param copy the file name of the copy
+     * @throws IOException on failure
      */
     public static void copyFiles(String original, String copy) throws IOException {
         InputStream in = FileUtils.newInputStream(original);
         OutputStream out = FileUtils.newOutputStream(copy, false);
         copyAndClose(in, out);
+    }
+
+    /**
+     * Converts / and \ name separators in path to native separators.
+     *
+     * @param path path to convert
+     * @return path with converted separators
+     */
+    public static String nameSeparatorsToNative(String path) {
+        return File.separatorChar == '/' ? path.replace('\\', '/') : path.replace('/', '\\');
     }
 
 }

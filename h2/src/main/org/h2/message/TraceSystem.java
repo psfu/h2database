@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2022 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -269,7 +269,7 @@ public class TraceSystem implements TraceWriter {
                     JdbcException se = (JdbcException) t;
                     int code = se.getErrorCode();
                     if (ErrorCode.isCommon(code)) {
-                        printWriter.println(t.toString());
+                        printWriter.println(t);
                     } else {
                         t.printStackTrace(printWriter);
                     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2022 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -27,7 +27,7 @@ public class TestMvcc3 extends TestDb {
      */
     public static void main(String... a) throws Exception {
         TestBase test = TestBase.createCaller().init();
-        test.test();
+        test.testFromMain();
     }
 
     @Override
@@ -36,7 +36,6 @@ public class TestMvcc3 extends TestDb {
         testConcurrentUpdate();
         testInsertUpdateRollback();
         testCreateTableAsSelect();
-        testSequence();
         testDisableAutoCommit();
         testRollback();
         deleteDb("mvcc3");
@@ -63,9 +62,6 @@ public class TestMvcc3 extends TestDb {
     }
 
     private void testConcurrentUpdate() throws SQLException {
-        if (!config.mvStore) {
-            return;
-        }
         deleteDb("mvcc3");
         Connection c1 = getConnection("mvcc3");
         c1.setAutoCommit(false);
@@ -102,10 +98,6 @@ public class TestMvcc3 extends TestDb {
     }
 
     private void testInsertUpdateRollback() throws SQLException {
-        if (!config.mvStore) {
-            return;
-        }
-
         deleteDb("mvcc3");
         Connection c1 = getConnection("mvcc3");
         Statement s1 = c1.createStatement();
@@ -147,9 +139,6 @@ public class TestMvcc3 extends TestDb {
     }
 
     private void testCreateTableAsSelect() throws SQLException {
-        if (!config.mvStore) {
-            return;
-        }
         deleteDb("mvcc3");
         Connection c1 = getConnection("mvcc3");
         Statement s1 = c1.createStatement();
@@ -165,10 +154,6 @@ public class TestMvcc3 extends TestDb {
     }
 
     private void testRollback() throws SQLException {
-        if (!config.mvStore) {
-            return;
-        }
-
         deleteDb("mvcc3");
         Connection conn = getConnection("mvcc3");
         Statement stat = conn.createStatement();
@@ -218,9 +203,6 @@ public class TestMvcc3 extends TestDb {
     }
 
     private void testDisableAutoCommit() throws SQLException {
-        if (!config.mvStore) {
-            return;
-        }
         deleteDb("mvcc3");
         Connection conn = getConnection("mvcc3");
         Statement stat = conn.createStatement();
@@ -231,32 +213,6 @@ public class TestMvcc3 extends TestDb {
         ResultSet rs = stat.executeQuery("SELECT * FROM TEST ORDER BY ID");
         rs.next();
         assertEquals(0, rs.getInt(1));
-        rs.next();
-        assertEquals(1, rs.getInt(1));
-        conn.close();
-    }
-
-    private void testSequence() throws SQLException {
-        if (config.memory) {
-            return;
-        }
-
-        deleteDb("mvcc3");
-        Connection conn;
-        ResultSet rs;
-
-        conn = getConnection("mvcc3");
-        conn.createStatement().execute("create sequence abc");
-        conn.close();
-
-        conn = getConnection("mvcc3");
-        rs = conn.createStatement().executeQuery("call abc.nextval");
-        rs.next();
-        assertEquals(1, rs.getInt(1));
-        conn.close();
-
-        conn = getConnection("mvcc3");
-        rs = conn.createStatement().executeQuery("call abc.currval");
         rs.next();
         assertEquals(1, rs.getInt(1));
         conn.close();

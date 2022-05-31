@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2022 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -35,11 +35,12 @@ public class TestStreamStore extends TestBase {
      * @param a ignored
      */
     public static void main(String... a) throws Exception {
-        TestBase.createCaller().init().test();
+        TestBase.createCaller().init().testFromMain();
     }
 
     @Override
     public void test() throws IOException {
+        FileUtils.createDirectories(getBaseDir());
         testMaxBlockKey();
         testIOException();
         testSaveCount();
@@ -85,8 +86,7 @@ public class TestStreamStore extends TestBase {
             }
             fail();
         } catch (IOException e) {
-            assertEquals(DataUtils.ERROR_BLOCK_NOT_FOUND,
-                    DataUtils.getErrorCode(e.getMessage()));
+            checkErrorCode(DataUtils.ERROR_BLOCK_NOT_FOUND, e.getCause());
         }
     }
 
@@ -103,9 +103,9 @@ public class TestStreamStore extends TestBase {
         for (int i = 0; i < 8 * 16; i++) {
             streamStore.put(new RandomStream(blockSize, i));
         }
-        long writeCount = s.getFileStore().getWriteCount();
-        assertTrue(writeCount > 2);
         s.close();
+        long writeCount = s.getFileStore().getWriteCount();
+        assertTrue(writeCount > 5);
     }
 
     private void testExceptionDuringStore() throws IOException {
@@ -114,12 +114,10 @@ public class TestStreamStore extends TestBase {
         HashMap<Long, byte[]> map = new HashMap<>();
         StreamStore s = new StreamStore(map);
         s.setMaxBlockSize(1024);
-        assertThrows(IOException.class, s).
-            put(createFailingStream(new IOException()));
+        assertThrows(IOException.class, () -> s.put(createFailingStream(new IOException())));
         assertEquals(0, map.size());
         // the runtime exception is converted to an IOException
-        assertThrows(IOException.class, s).
-            put(createFailingStream(new IllegalStateException()));
+        assertThrows(IOException.class, () -> s.put(createFailingStream(new IllegalStateException())));
         assertEquals(0, map.size());
     }
 
@@ -231,29 +229,14 @@ public class TestStreamStore extends TestBase {
 
     }
 
-    private void testDetectIllegalId() throws IOException {
+    private void testDetectIllegalId() {
         Map<Long, byte[]> map = new HashMap<>();
         StreamStore store = new StreamStore(map);
-        try {
-            store.length(new byte[]{3, 0, 0});
-            fail();
-        } catch (IllegalArgumentException e) {
-            // expected
-        }
-        try {
-            store.remove(new byte[]{3, 0, 0});
-            fail();
-        } catch (IllegalArgumentException e) {
-            // expected
-        }
+        assertThrows(IllegalArgumentException.class, () -> store.length(new byte[]{3, 0, 0}));
+        assertThrows(IllegalArgumentException.class, () -> store.remove(new byte[]{3, 0, 0}));
         map.put(0L, new byte[]{3, 0, 0});
         InputStream in = store.get(new byte[]{2, 1, 0});
-        try {
-            in.read();
-            fail();
-        } catch (IllegalArgumentException e) {
-            // expected
-        }
+        assertThrows(IllegalArgumentException.class, () -> in.read());
     }
 
     private void testTreeStructure() throws IOException {
